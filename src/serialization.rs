@@ -890,6 +890,141 @@ impl Deserialize for PubKeyEncryption {
     }
 }
 
+impl cbor_event::se::Serialize for COSEKey {
+    fn serialize<'se, W: Write>(&self, serializer: &'se mut Serializer<W>) -> cbor_event::Result<&'se mut Serializer<W>> {
+        serializer.write_map(cbor_event::Len::Len(self.other_headers.len() as u64 + 1 + match &self.key_id { Some(_) => 1, None => 0 } + match &self.algorithm_id { Some(_) => 1, None => 0 } + match &self.key_ops { Some(_) => 1, None => 0 } + match &self.base_init_vector { Some(_) => 1, None => 0 }))?;
+        serializer.write_unsigned_integer(1)?;
+        self.key_type.serialize(serializer)?;
+        if let Some(field) = &self.key_id {
+            serializer.write_unsigned_integer(2)?;
+            serializer.write_bytes(&field)?;
+        }
+        if let Some(field) = &self.algorithm_id {
+            serializer.write_unsigned_integer(3)?;
+            field.serialize(serializer)?;
+        }
+        if let Some(field) = &self.key_ops {
+            serializer.write_unsigned_integer(4)?;
+            field.serialize(serializer)?;
+        }
+        if let Some(field) = &self.base_init_vector {
+            serializer.write_unsigned_integer(5)?;
+            serializer.write_bytes(&field)?;
+        }
+        for (key, value) in &self.other_headers {
+            key.serialize(serializer)?;
+            value.serialize(serializer)?;
+        }
+        Ok(serializer)
+    }
+}
+
+impl Deserialize for COSEKey {
+    fn deserialize<R: BufRead + Seek>(raw: &mut Deserializer<R>) -> Result<Self, DeserializeError> {
+        (|| -> Result<_, DeserializeError> {
+            let len = raw.map()?;
+            let mut key_type = None;
+            let mut key_id = None;
+            let mut algorithm_id = None;
+            let mut key_ops = None;
+            let mut base_init_vector = None;
+            let mut other_headers = LinkedHashMap::<Label, Value>::new();
+            let mut read = 0;
+            while match len { cbor_event::Len::Len(n) => read < n as usize, cbor_event::Len::Indefinite => true, } {
+                match raw.cbor_type()? {
+                    CBORType::NegativeInteger => {
+                        let nint_abs = -raw.negative_integer()? as u64;
+                        read_value(
+                            raw,
+                            &mut other_headers,
+                            Label::new_int(&Int::new_negative(to_bignum(nint_abs))),
+                            Key::Nint(nint_abs))?;
+                    },
+                    CBORType::UnsignedInteger => match raw.unsigned_integer()? {
+                        1 =>  {
+                            if key_type.is_some() {
+                                return Err(DeserializeFailure::DuplicateKey(Key::Uint(1)).into());
+                            }
+                            key_type = Some((|| -> Result<_, DeserializeError> {
+                                Ok(Label::deserialize(raw)?)
+                            })().map_err(|e| e.annotate("key_type"))?);
+                        },
+                        2 =>  {
+                            if key_id.is_some() {
+                                return Err(DeserializeFailure::DuplicateKey(Key::Uint(2)).into());
+                            }
+                            key_id = Some((|| -> Result<_, DeserializeError> {
+                                Ok(raw.bytes()?)
+                            })().map_err(|e| e.annotate("key_id"))?);
+                        },
+                        3 =>  {
+                            if algorithm_id.is_some() {
+                                return Err(DeserializeFailure::DuplicateKey(Key::Uint(3)).into());
+                            }
+                            algorithm_id = Some((|| -> Result<_, DeserializeError> {
+                                Ok(Label::deserialize(raw)?)
+                            })().map_err(|e| e.annotate("algorithm_id"))?);
+                        },
+                        4 =>  {
+                            if key_ops.is_some() {
+                                return Err(DeserializeFailure::DuplicateKey(Key::Uint(4)).into());
+                            }
+                            key_ops = Some((|| -> Result<_, DeserializeError> {
+                                Ok(Labels::deserialize(raw)?)
+                            })().map_err(|e| e.annotate("key_ops"))?);
+                        },
+                        5 =>  {
+                            if base_init_vector.is_some() {
+                                return Err(DeserializeFailure::DuplicateKey(Key::Uint(5)).into());
+                            }
+                            base_init_vector = Some((|| -> Result<_, DeserializeError> {
+                                Ok(raw.bytes()?)
+                            })().map_err(|e| e.annotate("base_init_vector"))?);
+                        },
+                        other_key => {
+                            let uint = other_key;
+                            read_value(
+                                raw,
+                                &mut other_headers,
+                                Label::new_int(&Int::new(to_bignum(uint))),
+                                Key::Uint(uint))?;
+                        },
+                    },
+                    CBORType::Text => {
+                        let text = raw.text()?;
+                        read_value(
+                            raw,
+                            &mut other_headers,
+                            Label::new_text(text.clone()),
+                            Key::Str(text))?;
+                    },
+                    CBORType::Special => match raw.special()? {
+                        CBORSpecial::Break => match len {
+                            cbor_event::Len::Len(_) => return Err(DeserializeFailure::BreakInDefiniteLen.into()),
+                            cbor_event::Len::Indefinite => break,
+                        },
+                        _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
+                    },
+                    other_type => return Err(DeserializeFailure::UnexpectedKeyType(other_type).into()),
+                }
+                read += 1;
+            }
+            println!("other_headers = {:?}", other_headers);
+            match key_type {
+                Some(kty) => Ok(Self {
+                    key_type: kty,
+                    key_id,
+                    algorithm_id,
+                    key_ops,
+                    base_init_vector,
+                    other_headers,
+                }),
+                None => Err(DeserializeFailure::MandatoryFieldMissing(Key::Uint(8)).into()),
+            }
+        })().map_err(|e| e.annotate("COSEKey"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,5 +1169,20 @@ mod tests {
             vec![8u8, 9u8, 100u8],
             vec![73u8; 23]);
         deser_test(sig_struct);
+    }
+
+    #[test]
+    fn cose_key() {
+        let mut cose_key = COSEKey::new(&label_int(8));
+        cose_key.set_algorithm_id(&label_str("fdsfdsf"));
+        cose_key.set_base_init_vector(vec![9; 5]);
+        cose_key.set_key_id(vec![]);
+        let mut key_ops = Labels::new();
+        key_ops.add(&label_str("sadsddfd"));
+        key_ops.add(&label_int(-100));
+        cose_key.set_key_ops(&key_ops);
+        cose_key.other_headers.insert(label_str("dsfdsf"), Value::I64(-100));
+        cose_key.other_headers.insert(label_int(-50), Value::Text(String::from("134da2234fdsfd")));
+        deser_test(cose_key);
     }
 }

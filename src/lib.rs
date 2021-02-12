@@ -14,6 +14,8 @@ use cbor_event::{self, de::Deserializer, se::{Serialize, Serializer}, Value};
 use cbor_event::Type as CBORType;
 use cbor_event::Special as CBORSpecial;
 
+mod builders;
+mod crypto;
 mod error;
 mod serialization;
 #[macro_use]
@@ -201,6 +203,7 @@ pub struct HeaderMap {
     init_vector: Option<Vec<u8>>,
     partial_init_vector: Option<Vec<u8>>,
     counter_signature: Option<Box<COSESignatureOrArrCOSESignature>>,
+    // TODO: write a proper accessor for this
     pub other_headers: LinkedHashMap<Label, Value>,
 }
 
@@ -642,5 +645,76 @@ to_from_bytes!(PubKeyEncryption);
 impl PubKeyEncryption {
     pub fn new(data: &COSEEncrypt) -> Self {
         Self(data.clone())
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Clone, Debug)]
+pub struct COSEKey {
+    // key type, See KeyType enum (OKP, ECS, etc)
+    key_type: Label,
+    key_id: Option<Vec<u8>>,
+    // algorithm identifier. See AlgorithmIds enum (EdDSA, ChaChaPoly, etc)
+    algorithm_id: Option<Label>,
+    // opertions that this key is valid for if this field exists
+    key_ops: Option<Labels>,
+    base_init_vector: Option<Vec<u8>>,
+    // TODO: write a proper accessor for this
+    pub other_headers: LinkedHashMap<Label, Value>,
+}
+
+to_from_bytes!(COSEKey);
+
+#[wasm_bindgen]
+impl COSEKey {
+    pub fn set_key_type(&mut self, key_type: &Label) {
+        self.key_type = key_type.clone()
+    }
+
+    pub fn key_type(&self) -> Label {
+        self.key_type.clone()
+    }
+
+    pub fn set_key_id(&mut self, key_id: Vec<u8>) {
+        self.key_id = Some(key_id)
+    }
+
+    pub fn key_id(&self) -> Option<Vec<u8>> {
+        self.key_id.clone()
+    }
+    
+    pub fn set_algorithm_id(&mut self, algorithm_id: &Label) {
+        self.algorithm_id = Some(algorithm_id.clone())
+    }
+
+    pub fn algorithm_id(&self) -> Option<Label> {
+        self.algorithm_id.clone()
+    }
+
+    pub fn set_key_ops(&mut self, key_ops: &Labels) {
+        self.key_ops = Some(key_ops.clone())
+    }
+
+    pub fn key_ops(&self) -> Option<Labels> {
+        self.key_ops.clone()
+    }
+
+    pub fn set_base_init_vector(&mut self, base_init_vector: Vec<u8>) {
+        self.base_init_vector = Some(base_init_vector)
+    }
+
+    pub fn base_init_vector(&self) -> Option<Vec<u8>> {
+        self.base_init_vector.clone()
+    }
+
+    pub fn new(key_type: &Label) -> Self {
+        Self {
+            key_type: key_type.clone(),
+            key_id: None,
+            algorithm_id: None,
+            key_ops: None,
+            base_init_vector: None,
+            other_headers: LinkedHashMap::new(),
+        }
     }
 }
