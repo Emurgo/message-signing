@@ -93,7 +93,7 @@ impl Label {
 }
 
 #[wasm_bindgen]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Labels(Vec<Label>);
 
 to_from_bytes!(Labels);
@@ -651,16 +651,18 @@ impl PubKeyEncryption {
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct COSEKey {
-    // key type, See KeyType enum (OKP, ECS, etc)
+    // INT(1) key type, See KeyType enum (OKP, ECS, etc)
     key_type: Label,
+    // INT(2)
     key_id: Option<Vec<u8>>,
-    // algorithm identifier. See AlgorithmIds enum (EdDSA, ChaChaPoly, etc)
+    // INT(3) algorithm identifier. See AlgorithmIds enum (EdDSA, ChaChaPoly, etc)
     algorithm_id: Option<Label>,
-    // opertions that this key is valid for if this field exists
+    // INT(4) opertions that this key is valid for if this field exists
     key_ops: Option<Labels>,
+    // INT(5)
     base_init_vector: Option<Vec<u8>>,
-    // TODO: write a proper accessor for this
-    pub other_headers: LinkedHashMap<Label, Value>,
+    // all other headers not listed above. Does NOT contian the above, but the accessor functions do
+    other_headers: LinkedHashMap<Label, Value>,
 }
 
 to_from_bytes!(COSEKey);
@@ -707,6 +709,70 @@ impl COSEKey {
         self.base_init_vector.clone()
     }
 
+    pub fn header(&self, label: &Label) -> Option<Value> {
+        fn label_to_value(label: &Label) -> Value {
+            match &label.0 {
+                LabelEnum::Int(x) => if x.0 >= 0 {
+                    Value::U64(x.0 as u64)
+                } else {
+                    Value::I64(x.0 as i64)
+                }
+                LabelEnum::Text(x) => Value::Text(x.to_string()),
+            }
+        }
+        match label.0 {
+            LabelEnum::Int(Int(1)) => Some(label_to_value(&self.key_type)),
+            LabelEnum::Int(Int(2)) => self.key_id.as_ref().map(|kid| Value::Bytes(kid.clone())),
+            LabelEnum::Int(Int(3)) => self.algorithm_id.as_ref().map(label_to_value),
+            LabelEnum::Int(Int(4)) => self.key_ops.as_ref().map(|labels| Value::Array(labels.0.iter().map(label_to_value).collect())),
+            LabelEnum::Int(Int(5)) => self.base_init_vector.as_ref().map(|biv| Value::Bytes(biv.clone())),
+            _ => self.other_headers.get(label).map(|val| val.clone()),
+        }
+    }
+
+    pub fn set_header(&mut self, label: &Label, value: &Value) -> Result<(), JsError> {
+        fn value_to_label(value: &Value) -> Result<Label, JsError> {
+            match value {
+                Value::U64(x) => Ok(Label::new_int(&Int::new(to_bignum(*x)))),
+                Value::I64(x) => Ok(Label::new_int(&Int::new_negative(to_bignum(-*x as u64)))),
+                Value::Text(x) => Ok(Label::new_text(x.clone())),
+                _ => Err(JsError::from_str(&format!("Invalid label: {:?}", value))),
+            }
+        }
+        fn value_to_bytes(value: &Value) -> Result<Vec<u8>, JsError> {
+            match value {
+                Value::Bytes(bytes) => Ok(bytes.clone()),
+                _ => Err(JsError::from_str(&format!("Expected bytes, found: {:?}", value))),
+            }
+        }
+        match label.0 {
+            LabelEnum::Int(Int(1)) => {
+                self.key_type = value_to_label(value)?;
+            },
+            LabelEnum::Int(Int(2)) => {
+                self.key_id = Some(value_to_bytes(value)?);
+            },
+            LabelEnum::Int(Int(3)) => {
+                self.algorithm_id = Some(value_to_label(value)?);
+            },
+            LabelEnum::Int(Int(4)) => {
+                let labels = match value { 
+                    Value::Array(vals) => vals,
+                    Value::IArray(vals) => vals,
+                    _ => return Err(JsError::from_str(&format!("Expected array of labels, found: {:?}", value))),
+                }.iter().map(value_to_label).collect::<Result<_, JsError>>()?;
+                self.key_ops = Some(Labels(labels));
+            },
+            LabelEnum::Int(Int(5)) => {
+                self.base_init_vector = Some(value_to_bytes(value)?);
+            },
+            _ => {
+                self.other_headers.insert(label.clone(), value.clone());
+            },
+        }
+        Ok(())
+    }
+
     pub fn new(key_type: &Label) -> Self {
         Self {
             key_type: key_type.clone(),
@@ -716,5 +782,72 @@ impl COSEKey {
             base_init_vector: None,
             other_headers: LinkedHashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn label_int(x: i32) -> Label {
+        Label::new_int(&Int::new_i32(x))
+    }
+
+    fn label_str(s: &str) -> Label {
+        Label::new_text(String::from(s))
+    }
+
+    #[test]
+    fn cose_key_other_headers_overlap() {
+        let kty1 = label_str("key type 1");
+        let kid1 = vec![1u8, 2u8, 5u8, 10u8, 20u8, 40u8, 50u8];
+        let alg1 = label_int(-10);
+        let mut ops1 = Labels::new();
+        ops1.add(&label_str("dfdsfds"));
+        ops1.add(&label_int(-130));
+        let biv1 = vec![0u8; 128];
+
+        let kty1_value = Value::Text(String::from("key type 1"));
+        let kid1_value = Value::Bytes(kid1.clone());
+        let alg1_value = Value::I64(-10);
+        let ops1_value = Value::Array(vec![Value::Text(String::from("dfdsfds")), Value::I64(-130)]);
+        let biv1_value = Value::Bytes(biv1.clone());
+
+        let kty2 = label_int(352);
+        let kid2 = vec![7u8; 23];
+        let alg2 = label_str("algorithm 2");
+        let mut ops2 = Labels::new();
+        ops2.add(&label_str("89583249384"));
+        let biv2 = vec![10u8, 0u8, 5u8, 9u8, 50u8, 100u8, 30u8];
+
+        let kty2_value = Value::U64(352);
+        let kid2_value = Value::Bytes(kid2.clone());
+        let alg2_value = Value::Text(String::from("algorithm 2"));
+        let ops2_value = Value::Array(vec![Value::Text(String::from("89583249384"))]);
+        let biv2_value = Value::Bytes(biv2.clone());
+        
+        let mut ck = COSEKey::new(&kty1);
+        ck.set_key_id(kid1.clone());
+        ck.set_algorithm_id(&alg1);
+        ck.set_key_ops(&ops1);
+        ck.set_base_init_vector(biv1.clone());
+
+        assert_eq!(ck.header(&label_int(1)), Some(kty1_value));
+        assert_eq!(ck.header(&label_int(2)), Some(kid1_value));
+        assert_eq!(ck.header(&label_int(3)), Some(alg1_value));
+        assert_eq!(ck.header(&label_int(4)), Some(ops1_value));
+        assert_eq!(ck.header(&label_int(5)), Some(biv1_value));
+
+        ck.set_header(&label_int(1), &kty2_value).unwrap();
+        ck.set_header(&label_int(2), &kid2_value).unwrap();
+        ck.set_header(&label_int(3), &alg2_value).unwrap();
+        ck.set_header(&label_int(4), &ops2_value).unwrap();
+        ck.set_header(&label_int(5), &biv2_value).unwrap();
+
+        assert_eq!(ck.key_type(), kty2);
+        assert_eq!(ck.key_id(), Some(kid2));
+        assert_eq!(ck.algorithm_id(), Some(alg2));
+        assert_eq!(ck.key_ops(), Some(ops2));
+        assert_eq!(ck.base_init_vector(), Some(biv2));
     }
 }
