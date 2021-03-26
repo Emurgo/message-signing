@@ -431,6 +431,45 @@ impl SignedMessage {
         Self(SignedMessageEnum::COSESIGN1(cose_sign1.clone()))
     }
 
+    pub fn from_user_facing_encoding(s: &str) -> Result<Self, JsError> {
+        use std::io::Cursor;
+        use byteorder::{BigEndian, ReadBytesExt};
+
+        if !s.starts_with("cms_") {
+            return Err(JsError::from_str("SignedMessage user facing encoding must start with \"cms_\""));
+        }
+        let without_prefix = &s[4..];
+        // we need to (potentialy) strip the padding, if it exists on the checksum, in order to
+        // figure out which parts of the string are from the base64url of the checksum as this
+        // could be either 6 (no padding) or 8 (padding) to get the 4 bytes in the checksum
+        let without_checksum_padding = without_prefix.trim_end_matches('=');
+        // 6 for checksum base64url (4 bytes) + at least 2 for body base64url (at least 1 byte)
+        if without_checksum_padding.len() < 8 {
+            return Err(JsError::from_str("insufficient length - missing checksum"));
+        }
+        let (body_base64, checksum_base64) = without_checksum_padding.split_at(without_checksum_padding.len() - 6);
+        let body_bytes = base64_url::decode(body_base64)
+            .map_err(|e| JsError::from_str(&format!("Could not decode body from base64url: {:?}", e)))?;
+        let checksum_bytes = base64_url::decode(checksum_base64)
+            .map_err(|e| JsError::from_str(&format!("Could not decode checksum from base64url: {:?}", e)))?;
+        let expected_checksum = Cursor::new(checksum_bytes).read_u32::<BigEndian>().unwrap();
+        let computed_checksum = crypto::fnv32a(&body_bytes);
+        if expected_checksum != computed_checksum {
+            return Err(JsError::from_str(&format!("checksum does not match body. shown: {}, computed from body: {}", expected_checksum, computed_checksum)));
+        }
+        Self::from_bytes(body_bytes).map_err(|e| JsError::from_str(&format!("Invalid body: {}", e)))
+    }
+
+    pub fn to_user_facing_encoding(&self) -> String {
+        use byteorder::{BigEndian, WriteBytesExt};
+
+        let body_bytes = self.to_bytes();
+        let checksum = crypto::fnv32a(&body_bytes);
+        let mut checksum_bytes = vec![];
+        checksum_bytes.write_u32::<BigEndian>(checksum).unwrap();
+        format!("cms_{}{}", base64_url::encode(&body_bytes), base64_url::encode(&checksum_bytes))
+    }
+
     pub fn kind(&self) -> SignedMessageKind {
         match &self.0 {
             SignedMessageEnum::COSESIGN(_) => SignedMessageKind::COSESIGN,
@@ -849,5 +888,22 @@ mod tests {
         assert_eq!(ck.algorithm_id(), Some(alg2));
         assert_eq!(ck.key_ops(), Some(ops2));
         assert_eq!(ck.base_init_vector(), Some(biv2));
+    }
+
+    #[test]
+    fn signed_message_user_facing_encoding() {
+        let mut header_map = HeaderMap::new();
+        header_map.set_content_type(&Label::new_int(&Int::new_i32(-1000)));
+        let headers = Headers::new(&EmptyOrSerializedMap::new_empty(), &header_map);
+        let signed_message = SignedMessage::new_cose_sign1(&COSESign1::new(&headers, Some(vec![64u8; 39]), vec![1u8, 2u8, 100u8]));
+        let user_facing_encoding = signed_message.to_user_facing_encoding();
+        let from_ufe = SignedMessage::from_user_facing_encoding(&user_facing_encoding).unwrap();
+        assert_eq!(from_ufe.to_bytes(), signed_message.to_bytes());
+        let pad1 = SignedMessage::from_user_facing_encoding("cms_hEChAzkD51gnQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQwECZACyaZmw==").unwrap();
+        let pad2 = SignedMessage::from_user_facing_encoding("cms_hEChAzkD51gnQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQwECZA==CyaZmw").unwrap();
+        let pad3 = SignedMessage::from_user_facing_encoding("cms_hEChAzkD51gnQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQwECZA==CyaZmw==").unwrap();
+        assert_eq!(signed_message.to_bytes(), pad1.to_bytes());
+        assert_eq!(pad1.to_bytes(), pad2.to_bytes());
+        assert_eq!(pad2.to_bytes(), pad3.to_bytes());
     }
 }
