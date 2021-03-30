@@ -1017,21 +1017,83 @@ mod tests {
     fn print_cbor_types(vec: &Vec<u8>) {
         use cbor_event::Type;
         let mut raw = Deserializer::from(std::io::Cursor::new(vec));
-        println!("CBOR read = {{");
+        let mut lens = Vec::new();
+        let mut consume_elem = |lens: &mut Vec<cbor_event::Len>| {
+            if let Some(len) = lens.last_mut() {
+                if let cbor_event::Len::Len(n) = len {
+                    *n -= 1;
+                }
+            };
+        };
+        let mut reduce_depth = |lens: &mut Vec<cbor_event::Len>| {
+            while let Some(cbor_event::Len::Len(0)) = lens.last() {
+                lens.pop();
+                println!("{}}}", "\t".repeat(lens.len()));
+            }
+        };
         loop {
+            print!("{}", "\t".repeat(lens.len()));
             match raw.cbor_type() {
                 Err(_) => break,
-                Ok(Type::UnsignedInteger) => println!("UINT({})", raw.unsigned_integer().unwrap()),
-                Ok(Type::NegativeInteger) => println!("NINT({})", raw.negative_integer().unwrap()),
-                Ok(Type::Bytes) => println!("BYTES({:?})", raw.bytes().unwrap()),
-                Ok(Type::Text) => println!("TEXT({})", raw.text().unwrap()),
-                Ok(Type::Array) => println!("ARRAY({:?})", raw.array().unwrap()),
-                Ok(Type::Map) => println!("MAP({:?})", raw.map().unwrap()),
+                Ok(Type::UnsignedInteger) => {
+                    println!("UINT({})", raw.unsigned_integer().unwrap());
+                    consume_elem(&mut lens);
+                    reduce_depth(&mut lens);
+                },
+                Ok(Type::NegativeInteger) => {
+                    println!("NINT({})", raw.negative_integer().unwrap());
+                    consume_elem(&mut lens);
+                    reduce_depth(&mut lens);
+                },
+                Ok(Type::Bytes) => {
+                    println!("BYTES({:?})", raw.bytes().unwrap());
+                    consume_elem(&mut lens);
+                    reduce_depth(&mut lens);
+                },
+                Ok(Type::Text) => {
+                    println!("TEXT({})", raw.text().unwrap());
+                    consume_elem(&mut lens);
+                    reduce_depth(&mut lens);
+                },
+                Ok(Type::Array) => {
+                    let len = raw.array().unwrap();
+                    println!("ARRAY({:?}) {{", len);
+                    consume_elem(&mut lens);
+                    lens.push(len);
+                    if let cbor_event::Len::Len(0) = len {
+                        reduce_depth(&mut lens);
+                    }
+                },
+                Ok(Type::Map) => {
+                    let len = raw.map().unwrap();
+                    println!("MAP({:?}) {{", len);
+                    consume_elem(&mut lens);
+                    lens.push(match len {
+                        cbor_event::Len::Len(n) => cbor_event::Len::Len(2 * n),
+                        cbor_event::Len::Indefinite => cbor_event::Len::Indefinite,
+                    });
+                    if let cbor_event::Len::Len(0) = len {
+                        reduce_depth(&mut lens);
+                    }
+                },
                 Ok(Type::Tag) => println!("TAG({})", raw.tag().unwrap()),
-                Ok(Type::Special) => println!("SPECIAL({:?})", raw.special().unwrap()),
+                Ok(Type::Special) => {
+                    let special = raw.special().unwrap();
+                    println!("SPECIAL({:?})", special);
+                    if special == cbor_event::Special::Break {
+                        if let Some(cbor_event::Len::Indefinite) = lens.last() {
+                            lens.pop();
+                            reduce_depth(&mut lens);
+                        } else {
+                            panic!("unexpected break");
+                        }
+                    } else {
+                        consume_elem(&mut lens);
+                        reduce_depth(&mut lens);
+                    }
+                },
             }
         }
-        println!("}}");
     }
 
     fn deser_test<T: Deserialize + ToBytes + std::fmt::Debug>(orig: T) {
