@@ -144,52 +144,24 @@ impl COSESignatures {
 
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
-pub enum COSESignatureOrArrCOSESignatureKind {
-    COSESignature,
-    ArrCOSESignature,
-}
+pub struct CounterSignature(COSESignatures);
 
-#[derive(Clone, Debug)]
-enum COSESignatureOrArrCOSESignatureEnum {
-    COSESignature(COSESignature),
-    ArrCOSESignature(COSESignatures),
-}
+to_from_bytes!(CounterSignature);
 
 #[wasm_bindgen]
-#[derive(Clone, Debug)]
-pub struct COSESignatureOrArrCOSESignature(COSESignatureOrArrCOSESignatureEnum);
-
-to_from_bytes!(COSESignatureOrArrCOSESignature);
-
-#[wasm_bindgen]
-impl COSESignatureOrArrCOSESignature {
-    pub fn new_cose_signature(cose_signature: &COSESignature) -> Self {
-        Self(COSESignatureOrArrCOSESignatureEnum::COSESignature(cose_signature.clone()))
+impl CounterSignature {
+    pub fn new_single_signature(cose_signature: &COSESignature) -> Self {
+        let mut sigs = COSESignatures::new();
+        sigs.add(cose_signature);
+        Self(sigs)
     }
 
-    pub fn new_cose_signatures(cose_signatures: &COSESignatures) -> Self {
-        Self(COSESignatureOrArrCOSESignatureEnum::ArrCOSESignature(cose_signatures.clone()))
+    pub fn new_multiple_signatures(cose_signatures: &COSESignatures) -> Self {
+        Self(cose_signatures.clone())
     }
 
-    pub fn kind(&self) -> COSESignatureOrArrCOSESignatureKind {
-        match &self.0 {
-            COSESignatureOrArrCOSESignatureEnum::COSESignature(_) => COSESignatureOrArrCOSESignatureKind::COSESignature,
-            COSESignatureOrArrCOSESignatureEnum::ArrCOSESignature(_) => COSESignatureOrArrCOSESignatureKind::ArrCOSESignature,
-        }
-    }
-
-    pub fn as_cose_signature(&self) -> Option<COSESignature> {
-        match &self.0 {
-            COSESignatureOrArrCOSESignatureEnum::COSESignature(x) => Some(x.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn as_cose_signatures(&self) -> Option<COSESignatures> {
-        match &self.0 {
-            COSESignatureOrArrCOSESignatureEnum::ArrCOSESignature(x) => Some(x.clone()),
-            _ => None,
-        }
+    pub fn signatures(&self) -> COSESignatures {
+        self.0.clone()
     }
 }
 
@@ -202,9 +174,9 @@ pub struct HeaderMap {
     key_id: Option<Vec<u8>>,
     init_vector: Option<Vec<u8>>,
     partial_init_vector: Option<Vec<u8>>,
-    counter_signature: Option<Box<COSESignatureOrArrCOSESignature>>,
+    counter_signature: Option<Box<CounterSignature>>,
     // TODO: write a proper accessor for this
-    pub other_headers: LinkedHashMap<Label, Value>,
+    other_headers: LinkedHashMap<Label, Value>,
 }
 
 to_from_bytes!(HeaderMap);
@@ -259,11 +231,11 @@ impl HeaderMap {
         self.partial_init_vector.clone()
     }
 
-    pub fn set_counter_signature(&mut self, counter_signature: &COSESignatureOrArrCOSESignature) {
+    pub fn set_counter_signature(&mut self, counter_signature: &CounterSignature) {
         self.counter_signature = Some(Box::new(counter_signature.clone()))
     }
 
-    pub fn counter_signature(&self) -> Option<COSESignatureOrArrCOSESignature> {
+    pub fn counter_signature(&self) -> Option<CounterSignature> {
         use std::ops::Deref;
         self.counter_signature.as_ref().map(|sig| sig.deref().clone())
     }

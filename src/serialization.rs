@@ -125,20 +125,17 @@ impl Deserialize for COSESignatures {
     }
 }
 
-impl cbor_event::se::Serialize for COSESignatureOrArrCOSESignatureEnum {
+impl cbor_event::se::Serialize for CounterSignature {
     fn serialize<'se, W: Write>(&self, serializer: &'se mut Serializer<W>) -> cbor_event::Result<&'se mut Serializer<W>> {
-        match self {
-            COSESignatureOrArrCOSESignatureEnum::COSESignature(x) => {
-                x.serialize(serializer)
-            },
-            COSESignatureOrArrCOSESignatureEnum::ArrCOSESignature(x) => {
-                x.serialize(serializer)
-            },
+        if self.0.len() == 1 {
+            self.0.0.first().unwrap().serialize(serializer)
+        } else {
+            self.0.serialize(serializer)
         }
     }
 }
 
-impl Deserialize for COSESignatureOrArrCOSESignatureEnum {
+impl Deserialize for CounterSignature {
     fn deserialize<R: BufRead + Seek>(raw: &mut Deserializer<R>) -> Result<Self, DeserializeError> {
         (|| -> Result<_, DeserializeError> {
             let initial_position = raw.as_mut_ref().seek(SeekFrom::Current(0)).unwrap();
@@ -146,30 +143,18 @@ impl Deserialize for COSESignatureOrArrCOSESignatureEnum {
                 Ok(COSESignature::deserialize(raw)?)
             })(raw)
             {
-                Ok(variant) => return Ok(COSESignatureOrArrCOSESignatureEnum::COSESignature(variant)),
+                Ok(single_sig) => return Ok(CounterSignature::new_single_signature(&single_sig)),
                 Err(_) => raw.as_mut_ref().seek(SeekFrom::Start(initial_position)).unwrap(),
             };
             match (|raw: &mut Deserializer<_>| -> Result<_, DeserializeError> {
                 Ok(COSESignatures::deserialize(raw)?)
             })(raw)
             {
-                Ok(variant) => return Ok(COSESignatureOrArrCOSESignatureEnum::ArrCOSESignature(variant)),
+                Ok(multi_sig) => return Ok(CounterSignature::new_multiple_signatures(&multi_sig)),
                 Err(_) => raw.as_mut_ref().seek(SeekFrom::Start(initial_position)).unwrap(),
             };
-            Err(DeserializeError::new("COSESignatureOrArrCOSESignatureEnum", DeserializeFailure::NoVariantMatched.into()))
-        })().map_err(|e| e.annotate("COSESignatureOrArrCOSESignatureEnum"))
-    }
-}
-
-impl cbor_event::se::Serialize for COSESignatureOrArrCOSESignature {
-    fn serialize<'se, W: Write>(&self, serializer: &'se mut Serializer<W>) -> cbor_event::Result<&'se mut Serializer<W>> {
-        self.0.serialize(serializer)
-    }
-}
-
-impl Deserialize for COSESignatureOrArrCOSESignature {
-    fn deserialize<R: BufRead + Seek>(raw: &mut Deserializer<R>) -> Result<Self, DeserializeError> {
-        Ok(Self(COSESignatureOrArrCOSESignatureEnum::deserialize(raw)?))
+            Err(DeserializeError::new("CounterSignature", DeserializeFailure::NoVariantMatched.into()))
+        })().map_err(|e| e.annotate("CounterSignature"))
     }
 }
 
@@ -297,7 +282,7 @@ impl Deserialize for HeaderMap {
                                 return Err(DeserializeFailure::DuplicateKey(Key::Uint(7)).into());
                             }
                             counter_signature = Some(Box::new((|| -> Result<_, DeserializeError> {
-                                Ok(COSESignatureOrArrCOSESignature::deserialize(raw)?)
+                                Ok(CounterSignature::deserialize(raw)?)
                             })().map_err(|e| e.annotate("counter_signature"))?));
                         },
                         other_key => {
@@ -1106,7 +1091,7 @@ mod tests {
             hm.set_content_type(&label_int(-9));
             let h = Headers::new(&EmptyOrSerializedMap::new(&hm), &hm);
             let s = COSESignature::new(&h, vec![87u8; 74]);
-            COSESignatureOrArrCOSESignature::new_cose_signature(&s)
+            CounterSignature::new_single_signature(&s)
         };
         header_map.set_counter_signature(&counter_sig);
         header_map.other_headers.insert(label_str("i am a string key"), Value::Text(String::from("also a string")));
@@ -1184,5 +1169,29 @@ mod tests {
         cose_key.other_headers.insert(label_str("dsfdsf"), Value::I64(-100));
         cose_key.other_headers.insert(label_int(-50), Value::Text(String::from("134da2234fdsfd")));
         deser_test(cose_key);
+    }
+
+    #[test]
+    fn counter_sig() {
+        let mut prot = HeaderMap::new();
+        prot.set_init_vector(vec![5u8; 96]);
+        prot.set_algorithm_id(&label_str("some algo"));
+        let mut unprot = HeaderMap::new();
+        unprot.set_key_id(vec![3u8, 5u8, 9u8, 13u8, 19u8, 23u8]);
+        let headers = Headers::new(&EmptyOrSerializedMap::new(&prot), &unprot);
+    
+        let sig1 = COSESignature::new(&headers, vec![1u8, 5u8, 100u8, 23u8, 32u8, 16u8, 8u8, 64u8, 96u8, 54u8]);    
+        let cs1 = CounterSignature::new_single_signature(&sig1);
+        assert_eq!(CounterSignature::from_bytes(cs1.to_bytes()).unwrap().signatures().len(), 1);
+        deser_test(cs1);
+
+        let sig2 = COSESignature::new(&headers, vec![55u8; 43]);
+        let mut sigs = COSESignatures::new();
+        sigs.add(&sig1);
+        sigs.add(&sig2);
+        let cs2 = CounterSignature::new_multiple_signatures(&sigs);
+        
+        assert_eq!(CounterSignature::from_bytes(cs2.to_bytes()).unwrap().signatures().len(), 2);
+        deser_test(cs2);
     }
 }
