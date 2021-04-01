@@ -26,18 +26,32 @@ use utils::*;
 
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
-pub struct EmptyOrSerializedMap(Vec<u8>);
+pub struct ProtectedHeaderMap(Vec<u8>);
 
-to_from_bytes!(EmptyOrSerializedMap);
+to_from_bytes!(ProtectedHeaderMap);
 
 #[wasm_bindgen]
-impl EmptyOrSerializedMap {
+impl ProtectedHeaderMap {
     pub fn new_empty() -> Self {
         Self(Vec::new())
     }
 
+    // COSE spec specifies that we SHOULD encode 0 length as 0 byte string rather than 0 length map
     pub fn new(header_map: &HeaderMap) -> Self {
-        Self(header_map.to_bytes())
+        if header_map.keys().len() == 0 {
+            Self::new_empty()
+        } else {
+            Self(header_map.to_bytes())
+        }
+    }
+
+    pub fn deserialized_headers(&self) -> HeaderMap {
+        if self.0.is_empty() {
+            HeaderMap::new()
+        } else {
+            HeaderMap::from_bytes(self.0.clone())
+                .expect("ProtectedHeaderMap shouldn't be able to be constructed without being valid HeaderMap bytes")
+        }
     }
 }
 
@@ -150,13 +164,13 @@ to_from_bytes!(CounterSignature);
 
 #[wasm_bindgen]
 impl CounterSignature {
-    pub fn new_single_signature(cose_signature: &COSESignature) -> Self {
+    pub fn new_single(cose_signature: &COSESignature) -> Self {
         let mut sigs = COSESignatures::new();
         sigs.add(cose_signature);
         Self(sigs)
     }
 
-    pub fn new_multiple_signatures(cose_signatures: &COSESignatures) -> Self {
+    pub fn new_multi(cose_signatures: &COSESignatures) -> Self {
         Self(cose_signatures.clone())
     }
 
@@ -168,14 +182,21 @@ impl CounterSignature {
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct HeaderMap {
+    // INT(1) key type
     algorithm_id: Option<Label>,
+    // INT(2) key type
     criticality: Option<Labels>,
+    // INT(3) key type
     content_type: Option<Label>,
+    // INT(4) key type
     key_id: Option<Vec<u8>>,
+    // INT(5) key type
     init_vector: Option<Vec<u8>>,
+    // INT(6) key type
     partial_init_vector: Option<Vec<u8>>,
+    // INT(7) key type
     counter_signature: Option<Box<CounterSignature>>,
-    // TODO: write a proper accessor for this
+    // all other headers not listed above. Does NOT contian the above, but the accessor functions do
     other_headers: LinkedHashMap<Label, Value>,
 }
 
@@ -240,6 +261,111 @@ impl HeaderMap {
         self.counter_signature.as_ref().map(|sig| sig.deref().clone())
     }
 
+    pub fn header(&self, label: &Label) -> Option<Value> {
+        fn label_to_value(label: &Label) -> Value {
+            match &label.0 {
+                LabelEnum::Int(x) => if x.0 >= 0 {
+                    Value::U64(x.0 as u64)
+                } else {
+                    Value::I64(x.0 as i64)
+                }
+                LabelEnum::Text(x) => Value::Text(x.to_string()),
+            }
+        }
+        match label.0 {
+            LabelEnum::Int(Int(1)) => self.algorithm_id.as_ref().map(label_to_value),
+            LabelEnum::Int(Int(2)) => self.criticality.as_ref().map(|labels| Value::Array(labels.0.iter().map(label_to_value).collect())),
+            LabelEnum::Int(Int(3)) => self.content_type.as_ref().map(label_to_value),
+            LabelEnum::Int(Int(4)) => self.key_id.as_ref().map(|kid| Value::Bytes(kid.clone())),
+            LabelEnum::Int(Int(5)) => self.init_vector.as_ref().map(|iv| Value::Bytes(iv.clone())),
+            LabelEnum::Int(Int(6)) => self.partial_init_vector.as_ref().map(|piv| Value::Bytes(piv.clone())),
+            LabelEnum::Int(Int(7)) => {
+                let bytes = self.counter_signature.as_ref()?.to_bytes();
+                let mut raw = Deserializer::from(std::io::Cursor::new(bytes));
+                Some(Value::deserialize(&mut raw).unwrap())
+            },
+            _ => self.other_headers.get(label).map(|val| val.clone()),
+        }
+    }
+
+    pub fn set_header(&mut self, label: &Label, value: &Value) -> Result<(), JsError> {
+        fn value_to_label(value: &Value) -> Result<Label, JsError> {
+            match value {
+                Value::U64(x) => Ok(Label::new_int(&Int::new(to_bignum(*x)))),
+                Value::I64(x) => Ok(Label::new_int(&Int::new_negative(to_bignum(-*x as u64)))),
+                Value::Text(x) => Ok(Label::new_text(x.clone())),
+                _ => Err(JsError::from_str(&format!("Invalid label: {:?}", value))),
+            }
+        }
+        fn value_to_bytes(value: &Value) -> Result<Vec<u8>, JsError> {
+            match value {
+                Value::Bytes(bytes) => Ok(bytes.clone()),
+                _ => Err(JsError::from_str(&format!("Expected bytes, found: {:?}", value))),
+            }
+        }
+        match label.0 {
+            LabelEnum::Int(Int(1)) => {
+                self.algorithm_id = Some(value_to_label(value)?);
+            },
+            LabelEnum::Int(Int(2)) => {
+                let labels = match value { 
+                    Value::Array(vals) => vals,
+                    Value::IArray(vals) => vals,
+                    _ => return Err(JsError::from_str(&format!("Expected array of labels, found: {:?}", value))),
+                }.iter().map(value_to_label).collect::<Result<_, JsError>>()?;
+                self.criticality = Some(Labels(labels));
+            },
+            LabelEnum::Int(Int(3)) => {
+                self.content_type = Some(value_to_label(value)?);
+            },
+            LabelEnum::Int(Int(4)) => {
+                self.key_id = Some(value_to_bytes(value)?);
+            },
+            LabelEnum::Int(Int(5)) => {
+                self.init_vector = Some(value_to_bytes(value)?);
+            },
+            LabelEnum::Int(Int(6)) => {
+                self.partial_init_vector = Some(value_to_bytes(value)?);
+            },
+            LabelEnum::Int(Int(7)) => {
+                let mut buf = Serializer::new_vec();
+                value.serialize(&mut buf).unwrap();
+                let bytes = buf.finalize();
+                self.counter_signature = Some(Box::new(CounterSignature::from_bytes(bytes)?));
+            },
+            _ => {
+                self.other_headers.insert(label.clone(), value.clone());
+            },
+        }
+        Ok(())
+    }
+
+    pub fn keys(&self) -> Labels {
+        let mut keys = self.other_headers.keys().into_iter().map(|k| k.clone()).collect::<Vec<Label>>();
+        if self.algorithm_id.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(1)));
+        }
+        if self.criticality.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(2)));
+        }
+        if self.content_type.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(3)));
+        }
+        if self.key_id.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(4)));
+        }
+        if self.init_vector.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(5)));
+        }
+        if self.partial_init_vector.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(6)));
+        }
+        if self.counter_signature.is_some() {
+            keys.push(Label::new_int(&Int::new_i32(7)));
+        }
+        Labels(keys)
+    }
+
     pub fn new() -> Self {
         Self {
             algorithm_id: None,
@@ -257,7 +383,7 @@ impl HeaderMap {
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct Headers {
-    protected: EmptyOrSerializedMap,
+    protected: ProtectedHeaderMap,
     unprotected: HeaderMap,
 }
 
@@ -265,7 +391,7 @@ to_from_bytes!(Headers);
 
 #[wasm_bindgen]
 impl Headers {
-    pub fn protected(&self) -> EmptyOrSerializedMap {
+    pub fn protected(&self) -> ProtectedHeaderMap {
         self.protected.clone()
     }
 
@@ -273,7 +399,7 @@ impl Headers {
         self.unprotected.clone()
     }
 
-    pub fn new(protected: &EmptyOrSerializedMap, unprotected: &HeaderMap) -> Self {
+    pub fn new(protected: &ProtectedHeaderMap, unprotected: &HeaderMap) -> Self {
         Self {
             protected: protected.clone(),
             unprotected: unprotected.clone(),
@@ -472,12 +598,14 @@ pub enum SigContext {
     CounterSignature
 }
 
+
+// We sign this structure's to_bytes() serialization instead of signing of messages directly
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct SigStructure {
     context: SigContext,
-    body_protected: EmptyOrSerializedMap,
-    sign_protected: Option<EmptyOrSerializedMap>,
+    body_protected: ProtectedHeaderMap,
+    sign_protected: Option<ProtectedHeaderMap>,
     external_aad: Vec<u8>,
     payload: Vec<u8>,
 }
@@ -490,11 +618,11 @@ impl SigStructure {
         self.context.clone()
     }
 
-    pub fn body_protected(&self) -> EmptyOrSerializedMap {
+    pub fn body_protected(&self) -> ProtectedHeaderMap {
         self.body_protected.clone()
     }
 
-    pub fn sign_protected(&self) -> Option<EmptyOrSerializedMap> {
+    pub fn sign_protected(&self) -> Option<ProtectedHeaderMap> {
         self.sign_protected.clone()
     }
 
@@ -506,11 +634,11 @@ impl SigStructure {
         self.payload.clone()
     }
 
-    pub fn set_sign_protected(&mut self, sign_protected: &EmptyOrSerializedMap) {
+    pub fn set_sign_protected(&mut self, sign_protected: &ProtectedHeaderMap) {
         self.sign_protected = Some(sign_protected.clone());
     }
 
-    pub fn new(context: SigContext, body_protected: &EmptyOrSerializedMap, external_aad: Vec<u8>, payload: Vec<u8>) -> Self {
+    pub fn new(context: SigContext, body_protected: &ProtectedHeaderMap, external_aad: Vec<u8>, payload: Vec<u8>) -> Self {
         Self {
             context,
             body_protected: body_protected.clone(),
@@ -866,7 +994,7 @@ mod tests {
     fn signed_message_user_facing_encoding() {
         let mut header_map = HeaderMap::new();
         header_map.set_content_type(&Label::new_int(&Int::new_i32(-1000)));
-        let headers = Headers::new(&EmptyOrSerializedMap::new_empty(), &header_map);
+        let headers = Headers::new(&ProtectedHeaderMap::new_empty(), &header_map);
         let signed_message = SignedMessage::new_cose_sign1(&COSESign1::new(&headers, Some(vec![64u8; 39]), vec![1u8, 2u8, 100u8]));
         let user_facing_encoding = signed_message.to_user_facing_encoding();
         let from_ufe = SignedMessage::from_user_facing_encoding(&user_facing_encoding).unwrap();

@@ -2,22 +2,22 @@ use super::*;
 use std::io::{Seek, SeekFrom};
 use linked_hash_map::LinkedHashMap;
 
-impl cbor_event::se::Serialize for EmptyOrSerializedMap {
+impl cbor_event::se::Serialize for ProtectedHeaderMap {
     fn serialize<'se, W: Write>(&self, serializer: &'se mut Serializer<W>) -> cbor_event::Result<&'se mut Serializer<W>> {
         serializer.write_bytes(&self.0)
     }
 }
 
-impl Deserialize for EmptyOrSerializedMap {
+impl Deserialize for ProtectedHeaderMap {
     fn deserialize<R: BufRead + Seek>(raw: &mut Deserializer<R>) -> Result<Self, DeserializeError> {
         (|| -> Result<_, DeserializeError> {
             let bytes = raw.bytes()?;
             if bytes.is_empty() {
-                Ok(EmptyOrSerializedMap::new_empty())
+                Ok(ProtectedHeaderMap::new_empty())
             } else {
-                Ok(EmptyOrSerializedMap::new(&HeaderMap::from_bytes(bytes)?))
+                Ok(ProtectedHeaderMap::new(&HeaderMap::from_bytes(bytes)?))
             }
-        })().map_err(|e| e.annotate("EmptyOrSerializedMap"))
+        })().map_err(|e| e.annotate("ProtectedHeaderMap"))
     }
 }
 
@@ -143,14 +143,14 @@ impl Deserialize for CounterSignature {
                 Ok(COSESignature::deserialize(raw)?)
             })(raw)
             {
-                Ok(single_sig) => return Ok(CounterSignature::new_single_signature(&single_sig)),
+                Ok(single_sig) => return Ok(CounterSignature::new_single(&single_sig)),
                 Err(_) => raw.as_mut_ref().seek(SeekFrom::Start(initial_position)).unwrap(),
             };
             match (|raw: &mut Deserializer<_>| -> Result<_, DeserializeError> {
                 Ok(COSESignatures::deserialize(raw)?)
             })(raw)
             {
-                Ok(multi_sig) => return Ok(CounterSignature::new_multiple_signatures(&multi_sig)),
+                Ok(multi_sig) => return Ok(CounterSignature::new_multi(&multi_sig)),
                 Err(_) => raw.as_mut_ref().seek(SeekFrom::Start(initial_position)).unwrap(),
             };
             Err(DeserializeError::new("CounterSignature", DeserializeFailure::NoVariantMatched.into()))
@@ -365,7 +365,7 @@ impl Deserialize for Headers {
 impl DeserializeEmbeddedGroup for Headers {
     fn deserialize_as_embedded_group<R: BufRead + Seek>(raw: &mut Deserializer<R>, _read_len: &mut CBORReadLen, _len: cbor_event::Len) -> Result<Self, DeserializeError> {
         let protected = (|| -> Result<_, DeserializeError> {
-            Ok(EmptyOrSerializedMap::deserialize(raw)?)
+            Ok(ProtectedHeaderMap::deserialize(raw)?)
         })().map_err(|e| e.annotate("protected"))?;
         let unprotected = (|| -> Result<_, DeserializeError> {
             Ok(HeaderMap::deserialize(raw)?)
@@ -608,7 +608,7 @@ impl Deserialize for SigStructure {
                 }
             })().map_err(|e| e.annotate("context"))?;
             let body_protected = (|| -> Result<_, DeserializeError> {
-                Ok(EmptyOrSerializedMap::deserialize(raw)?)
+                Ok(ProtectedHeaderMap::deserialize(raw)?)
             })().map_err(|e| e.annotate("body_protected"))?;
             // due to all 3 fields being binary types and the optional one being the first,
             // we need to read all before we know which strings will be which since we can't
@@ -631,9 +631,9 @@ impl Deserialize for SigStructure {
             let (sign_protected, external_aad, payload) = match b3 {
                 Some(bytes) => {
                     let map = if b1.len() == 0 {
-                        EmptyOrSerializedMap::new_empty()
+                        ProtectedHeaderMap::new_empty()
                     } else {
-                        EmptyOrSerializedMap::new(&HeaderMap::from_bytes(b1)?)
+                        ProtectedHeaderMap::new(&HeaderMap::from_bytes(b1)?)
                     };
                     (Some(map), b2, bytes)
                 },
@@ -1114,7 +1114,7 @@ mod tests {
 
     #[test]
     fn empty_or_serialized_map_ok_empty() {
-        deser_test(EmptyOrSerializedMap::new_empty());
+        deser_test(ProtectedHeaderMap::new_empty());
     }
 
     #[test]
@@ -1122,7 +1122,7 @@ mod tests {
         let mut header_map = HeaderMap::new();
         header_map.set_algorithm_id(&label_int(199));
         header_map.set_partial_init_vector(vec![0u8, 1u8, 2u8]);
-        deser_test(EmptyOrSerializedMap::new(&header_map));
+        deser_test(ProtectedHeaderMap::new(&header_map));
     }
 
     #[test]
@@ -1132,7 +1132,7 @@ mod tests {
             buf.write_bytes(&[100u8; 9]).unwrap();
             buf.finalize()
         };
-        assert_eq!(EmptyOrSerializedMap::from_bytes(non_header_bytes).unwrap_err().location.unwrap(), "EmptyOrSerializedMap.HeaderMap");
+        assert_eq!(ProtectedHeaderMap::from_bytes(non_header_bytes).unwrap_err().location.unwrap(), "ProtectedHeaderMap.HeaderMap");
     }
 
     #[test]
@@ -1151,9 +1151,9 @@ mod tests {
             let mut hm = HeaderMap::new();
             hm.set_key_id(vec![7u8; 7]);
             hm.set_content_type(&label_int(-9));
-            let h = Headers::new(&EmptyOrSerializedMap::new(&hm), &hm);
+            let h = Headers::new(&ProtectedHeaderMap::new(&hm), &hm);
             let s = COSESignature::new(&h, vec![87u8; 74]);
-            CounterSignature::new_single_signature(&s)
+            CounterSignature::new_single(&s)
         };
         header_map.set_counter_signature(&counter_sig);
         header_map.other_headers.insert(label_str("i am a string key"), Value::Text(String::from("also a string")));
@@ -1165,7 +1165,7 @@ mod tests {
     fn cose_sign() {
         let mut header_map = HeaderMap::new();
         header_map.set_content_type(&label_int(-1000));
-        let headers = Headers::new(&EmptyOrSerializedMap::new_empty(), &header_map);
+        let headers = Headers::new(&ProtectedHeaderMap::new_empty(), &header_map);
         let mut sigs = COSESignatures::new();
         sigs.add(&COSESignature::new(&headers, vec![57u8; 37]));
         let payload = COSESign::new(&headers, Some(vec![64u8; 39]), &sigs);
@@ -1179,7 +1179,7 @@ mod tests {
     fn cose_sign1() {
         let mut header_map = HeaderMap::new();
         header_map.set_content_type(&label_int(-1000));
-        let headers = Headers::new(&EmptyOrSerializedMap::new_empty(), &header_map);
+        let headers = Headers::new(&ProtectedHeaderMap::new_empty(), &header_map);
         let payload = COSESign1::new(&headers, Some(vec![64u8; 39]), vec![1u8, 2u8, 100u8]);
         let no_payload = COSESign1::new(&headers, None, vec![1u8, 2u8, 100u8]);
         deser_test(payload);
@@ -1190,10 +1190,10 @@ mod tests {
     fn sig_structure_sign() {
         let mut sig_struct = SigStructure::new(
             SigContext::Signature,
-            &EmptyOrSerializedMap::new_empty(),
+            &ProtectedHeaderMap::new_empty(),
             vec![8u8, 9u8, 100u8],
             vec![73u8; 23]);
-        sig_struct.set_sign_protected(&EmptyOrSerializedMap::new_empty());
+        sig_struct.set_sign_protected(&ProtectedHeaderMap::new_empty());
         deser_test(sig_struct);
     }
 
@@ -1201,10 +1201,10 @@ mod tests {
     fn sig_structure_counter() {
         let mut sig_struct = SigStructure::new(
             SigContext::CounterSignature,
-            &EmptyOrSerializedMap::new_empty(),
+            &ProtectedHeaderMap::new_empty(),
             vec![8u8, 9u8, 100u8],
             vec![73u8; 23]);
-        sig_struct.set_sign_protected(&EmptyOrSerializedMap::new_empty());
+        sig_struct.set_sign_protected(&ProtectedHeaderMap::new_empty());
         deser_test(sig_struct);
     }
 
@@ -1212,7 +1212,7 @@ mod tests {
     fn sig_structure_sign1() {
         let sig_struct = SigStructure::new(
             SigContext::Signature1,
-            &EmptyOrSerializedMap::new_empty(),
+            &ProtectedHeaderMap::new_empty(),
             vec![8u8, 9u8, 100u8],
             vec![73u8; 23]);
         deser_test(sig_struct);
@@ -1240,10 +1240,10 @@ mod tests {
         prot.set_algorithm_id(&label_str("some algo"));
         let mut unprot = HeaderMap::new();
         unprot.set_key_id(vec![3u8, 5u8, 9u8, 13u8, 19u8, 23u8]);
-        let headers = Headers::new(&EmptyOrSerializedMap::new(&prot), &unprot);
+        let headers = Headers::new(&ProtectedHeaderMap::new(&prot), &unprot);
     
         let sig1 = COSESignature::new(&headers, vec![1u8, 5u8, 100u8, 23u8, 32u8, 16u8, 8u8, 64u8, 96u8, 54u8]);    
-        let cs1 = CounterSignature::new_single_signature(&sig1);
+        let cs1 = CounterSignature::new_single(&sig1);
         assert_eq!(CounterSignature::from_bytes(cs1.to_bytes()).unwrap().signatures().len(), 1);
         deser_test(cs1);
 
@@ -1251,7 +1251,7 @@ mod tests {
         let mut sigs = COSESignatures::new();
         sigs.add(&sig1);
         sigs.add(&sig2);
-        let cs2 = CounterSignature::new_multiple_signatures(&sigs);
+        let cs2 = CounterSignature::new_multi(&sigs);
         
         assert_eq!(CounterSignature::from_bytes(cs2.to_bytes()).unwrap().signatures().len(), 2);
         deser_test(cs2);
