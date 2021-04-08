@@ -288,3 +288,28 @@ impl Deserialize for Int {
         })().map_err(|e| e.annotate("Int"))
     }
 }
+
+pub (crate) fn value_to_label(value: &CBORValue) -> Result<Label, JsError> {
+    match &value.0 {
+        CBORValueEnum::Int(x) => Ok(Label::new_int(x)),
+        CBORValueEnum::Text(x) => Ok(Label::new_text(x.clone())),
+        _ => Err(JsError::from_str(&format!("Invalid label: {:?}", value))),
+    }
+}
+pub (crate) fn value_to_bytes(value: &CBORValue) -> Result<Vec<u8>, JsError> {
+    match &value.0 {
+        CBORValueEnum::Bytes(bytes) => Ok(bytes.clone()),
+        _ => Err(JsError::from_str(&format!("Expected bytes, found: {:?}", value))),
+    }
+}
+
+pub (crate) fn label_to_value(label: &Label) -> CBORValue {
+    match &label.0 {
+        LabelEnum::Int(x) => CBORValue::new_int(x),
+        LabelEnum::Text(x) => CBORValue::new_text(x.to_string()),
+    }
+}
+
+pub (crate) fn labels_to_value(labels: &Labels) -> CBORValue {
+    CBORValue(CBORValueEnum::Array(labels.0.iter().map(label_to_value).collect::<Vec<_>>().into()))
+}

@@ -85,8 +85,8 @@ impl Deserialize for Labels {
         (|| -> Result<_, DeserializeError> {
             let len = raw.array()?;
             while match len { cbor_event::Len::Len(n) => arr.len() < n as usize, cbor_event::Len::Indefinite => true, } {
-                if raw.cbor_type()? == CBORType::Special {
-                    assert_eq!(raw.special()?, CBORSpecial::Break);
+                if raw.cbor_type()? == cbor_event::Type::Special {
+                    assert_eq!(raw.special()?, cbor_event::Special::Break);
                     break;
                 }
                 arr.push(Label::deserialize(raw)?);
@@ -113,8 +113,8 @@ impl Deserialize for COSESignatures {
         (|| -> Result<_, DeserializeError> {
             let len = raw.array()?;
             while match len { cbor_event::Len::Len(n) => arr.len() < n as usize, cbor_event::Len::Indefinite => true, } {
-                if raw.cbor_type()? == CBORType::Special {
-                    assert_eq!(raw.special()?, CBORSpecial::Break);
+                if raw.cbor_type()? == cbor_event::Type::Special {
+                    assert_eq!(raw.special()?, cbor_event::Special::Break);
                     break;
                 }
                 arr.push(COSESignature::deserialize(raw)?);
@@ -197,8 +197,8 @@ impl cbor_event::se::Serialize for HeaderMap {
     }
 }
 
-fn read_value<R: BufRead + Seek>(raw: &mut Deserializer<R>, other_headers: &mut LinkedHashMap<Label, Value>, label: Label, key: Key) -> Result<(), DeserializeError> {
-    let value = Value::deserialize(raw)?;
+fn read_value<R: BufRead + Seek>(raw: &mut Deserializer<R>, other_headers: &mut LinkedHashMap<Label, CBORValue>, label: Label, key: Key) -> Result<(), DeserializeError> {
+    let value = CBORValue::deserialize(raw)?;
     match other_headers.insert(label, value) {
         Some(_) => Err(DeserializeFailure::DuplicateKey(key).into()),
         None => Ok(()),
@@ -216,11 +216,11 @@ impl Deserialize for HeaderMap {
             let mut init_vector = None;
             let mut partial_init_vector = None;
             let mut counter_signature = None;
-            let mut other_headers = LinkedHashMap::<Label, Value>::new();
+            let mut other_headers = LinkedHashMap::<Label, CBORValue>::new();
             let mut read = 0;
             while match len { cbor_event::Len::Len(n) => read < n as usize, cbor_event::Len::Indefinite => true, } {
                 match raw.cbor_type()? {
-                    CBORType::NegativeInteger => {
+                    cbor_event::Type::NegativeInteger => {
                         let nint_abs = -raw.negative_integer()? as u64;
                         read_value(
                             raw,
@@ -228,7 +228,7 @@ impl Deserialize for HeaderMap {
                             Label::new_int(&Int::new_negative(to_bignum(nint_abs))),
                             Key::Nint(nint_abs))?;
                     },
-                    CBORType::UnsignedInteger => match raw.unsigned_integer()? {
+                    cbor_event::Type::UnsignedInteger => match raw.unsigned_integer()? {
                         1 =>  {
                             if algorithm_id.is_some() {
                                 return Err(DeserializeFailure::DuplicateKey(Key::Uint(1)).into());
@@ -294,7 +294,7 @@ impl Deserialize for HeaderMap {
                                 Key::Uint(uint))?;
                         },
                     },
-                    CBORType::Text => {
+                    cbor_event::Type::Text => {
                         let text = raw.text()?;
                         read_value(
                             raw,
@@ -302,8 +302,8 @@ impl Deserialize for HeaderMap {
                             Label::new_text(text.clone()),
                             Key::Str(text))?;
                     },
-                    CBORType::Special => match raw.special()? {
-                        CBORSpecial::Break => match len {
+                    cbor_event::Type::Special => match raw.special()? {
+                        cbor_event::Special::Break => match len {
                             cbor_event::Len::Len(_) => return Err(DeserializeFailure::BreakInDefiniteLen.into()),
                             cbor_event::Len::Indefinite => break,
                         },
@@ -353,7 +353,7 @@ impl Deserialize for Headers {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -401,7 +401,7 @@ impl Deserialize for COSESignature {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -421,7 +421,7 @@ impl cbor_event::se::Serialize for COSESign1 {
             Some(x) => {
                 serializer.write_bytes(&x)
             },
-            None => serializer.write_special(CBORSpecial::Null),
+            None => serializer.write_special(cbor_event::Special::Null),
         }?;
         serializer.write_bytes(&self.signature)?;
         Ok(serializer)
@@ -438,12 +438,12 @@ impl Deserialize for COSESign1 {
                 Ok(Headers::deserialize_as_embedded_group(raw, &mut read_len, len)?)
             })().map_err(|e| e.annotate("headers"))?;
             let payload = (|| -> Result<_, DeserializeError> {
-                Ok(match raw.cbor_type()? != CBORType::Special {
+                Ok(match raw.cbor_type()? != cbor_event::Type::Special {
                     true => {
                         Some(raw.bytes()?)
                     },
                     false => {
-                        if raw.special()? != CBORSpecial::Null {
+                        if raw.special()? != cbor_event::Special::Null {
                             return Err(DeserializeFailure::ExpectedNull.into());
                         }
                         None
@@ -456,7 +456,7 @@ impl Deserialize for COSESign1 {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -477,7 +477,7 @@ impl cbor_event::se::Serialize for COSESign {
             Some(x) => {
                 serializer.write_bytes(&x)
             },
-            None => serializer.write_special(CBORSpecial::Null),
+            None => serializer.write_special(cbor_event::Special::Null),
         }?;
         self.signatures.serialize(serializer)?;
         Ok(serializer)
@@ -494,12 +494,12 @@ impl Deserialize for COSESign {
                 Ok(Headers::deserialize_as_embedded_group(raw, &mut read_len, len)?)
             })().map_err(|e| e.annotate("headers"))?;
             let payload = (|| -> Result<_, DeserializeError> {
-                Ok(match raw.cbor_type()? != CBORType::Special {
+                Ok(match raw.cbor_type()? != cbor_event::Type::Special {
                     true => {
                         Some(raw.bytes()?)
                     },
                     false => {
-                        if raw.special()? != CBORSpecial::Null {
+                        if raw.special()? != cbor_event::Special::Null {
                             return Err(DeserializeFailure::ExpectedNull.into());
                         }
                         None
@@ -512,7 +512,7 @@ impl Deserialize for COSESign {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -640,7 +640,7 @@ impl Deserialize for SigStructure {
                 None => (None, b1, b2),
             };
             if len == cbor_event::Len::Indefinite {
-                if raw.special()? != CBORSpecial::Break {
+                if raw.special()? != cbor_event::Special::Break {
                     return Err(DeserializeFailure::EndingBreakMissing.into());
                 }
             }
@@ -663,7 +663,7 @@ impl cbor_event::se::Serialize for COSEEncrypt0 {
             Some(x) => {
                 serializer.write_bytes(&x)
             },
-            None => serializer.write_special(CBORSpecial::Null),
+            None => serializer.write_special(cbor_event::Special::Null),
         }?;
         Ok(serializer)
     }
@@ -679,12 +679,12 @@ impl Deserialize for COSEEncrypt0 {
                 Ok(Headers::deserialize_as_embedded_group(raw, &mut read_len, len)?)
             })().map_err(|e| e.annotate("headers"))?;
             let ciphertext = (|| -> Result<_, DeserializeError> {
-                Ok(match raw.cbor_type()? != CBORType::Special {
+                Ok(match raw.cbor_type()? != cbor_event::Type::Special {
                     true => {
                         Some(raw.bytes()?)
                     },
                     false => {
-                        if raw.special()? != CBORSpecial::Null {
+                        if raw.special()? != cbor_event::Special::Null {
                             return Err(DeserializeFailure::ExpectedNull.into());
                         }
                         None
@@ -694,7 +694,7 @@ impl Deserialize for COSEEncrypt0 {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -739,8 +739,8 @@ impl Deserialize for COSERecipients {
         (|| -> Result<_, DeserializeError> {
             let len = raw.array()?;
             while match len { cbor_event::Len::Len(n) => arr.len() < n as usize, cbor_event::Len::Indefinite => true, } {
-                if raw.cbor_type()? == CBORType::Special {
-                    assert_eq!(raw.special()?, CBORSpecial::Break);
+                if raw.cbor_type()? == cbor_event::Type::Special {
+                    assert_eq!(raw.special()?, cbor_event::Special::Break);
                     break;
                 }
                 arr.push(COSERecipient::deserialize(raw)?);
@@ -759,7 +759,7 @@ impl cbor_event::se::Serialize for COSEEncrypt {
             Some(x) => {
                 serializer.write_bytes(&x)
             },
-            None => serializer.write_special(CBORSpecial::Null),
+            None => serializer.write_special(cbor_event::Special::Null),
         }?;
         self.recipients.serialize(serializer)?;
         Ok(serializer)
@@ -776,12 +776,12 @@ impl Deserialize for COSEEncrypt {
                 Ok(Headers::deserialize_as_embedded_group(raw, &mut read_len, len)?)
             })().map_err(|e| e.annotate("headers"))?;
             let ciphertext = (|| -> Result<_, DeserializeError> {
-                Ok(match raw.cbor_type()? != CBORType::Special {
+                Ok(match raw.cbor_type()? != cbor_event::Type::Special {
                     true => {
                         Some(raw.bytes()?)
                     },
                     false => {
-                        if raw.special()? != CBORSpecial::Null {
+                        if raw.special()? != cbor_event::Special::Null {
                             return Err(DeserializeFailure::ExpectedNull.into());
                         }
                         None
@@ -794,7 +794,7 @@ impl Deserialize for COSEEncrypt {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -815,7 +815,7 @@ impl cbor_event::se::Serialize for COSERecipient {
             Some(x) => {
                 serializer.write_bytes(&x)
             },
-            None => serializer.write_special(CBORSpecial::Null),
+            None => serializer.write_special(cbor_event::Special::Null),
         }?;
         Ok(serializer)
     }
@@ -831,12 +831,12 @@ impl Deserialize for COSERecipient {
                 Ok(Headers::deserialize_as_embedded_group(raw, &mut read_len, len)?)
             })().map_err(|e| e.annotate("headers"))?;
             let ciphertext = (|| -> Result<_, DeserializeError> {
-                Ok(match raw.cbor_type()? != CBORType::Special {
+                Ok(match raw.cbor_type()? != cbor_event::Type::Special {
                     true => {
                         Some(raw.bytes()?)
                     },
                     false => {
-                        if raw.special()? != CBORSpecial::Null {
+                        if raw.special()? != cbor_event::Special::Null {
                             return Err(DeserializeFailure::ExpectedNull.into());
                         }
                         None
@@ -846,7 +846,7 @@ impl Deserialize for COSERecipient {
             match len {
                 cbor_event::Len::Len(_) => (),
                 cbor_event::Len::Indefinite => match raw.special()? {
-                    CBORSpecial::Break => (),
+                    cbor_event::Special::Break => (),
                     _ => return Err(DeserializeFailure::EndingBreakMissing.into()),
                 },
             }
@@ -913,11 +913,11 @@ impl Deserialize for COSEKey {
             let mut algorithm_id = None;
             let mut key_ops = None;
             let mut base_init_vector = None;
-            let mut other_headers = LinkedHashMap::<Label, Value>::new();
+            let mut other_headers = LinkedHashMap::<Label, CBORValue>::new();
             let mut read = 0;
             while match len { cbor_event::Len::Len(n) => read < n as usize, cbor_event::Len::Indefinite => true, } {
                 match raw.cbor_type()? {
-                    CBORType::NegativeInteger => {
+                    cbor_event::Type::NegativeInteger => {
                         let nint_abs = -raw.negative_integer()? as u64;
                         read_value(
                             raw,
@@ -925,7 +925,7 @@ impl Deserialize for COSEKey {
                             Label::new_int(&Int::new_negative(to_bignum(nint_abs))),
                             Key::Nint(nint_abs))?;
                     },
-                    CBORType::UnsignedInteger => match raw.unsigned_integer()? {
+                    cbor_event::Type::UnsignedInteger => match raw.unsigned_integer()? {
                         1 =>  {
                             if key_type.is_some() {
                                 return Err(DeserializeFailure::DuplicateKey(Key::Uint(1)).into());
@@ -975,7 +975,7 @@ impl Deserialize for COSEKey {
                                 Key::Uint(uint))?;
                         },
                     },
-                    CBORType::Text => {
+                    cbor_event::Type::Text => {
                         let text = raw.text()?;
                         read_value(
                             raw,
@@ -983,8 +983,8 @@ impl Deserialize for COSEKey {
                             Label::new_text(text.clone()),
                             Key::Str(text))?;
                     },
-                    CBORType::Special => match raw.special()? {
-                        CBORSpecial::Break => match len {
+                    cbor_event::Type::Special => match raw.special()? {
+                        cbor_event::Special::Break => match len {
                             cbor_event::Len::Len(_) => return Err(DeserializeFailure::BreakInDefiniteLen.into()),
                             cbor_event::Len::Indefinite => break,
                         },
@@ -1157,7 +1157,7 @@ mod tests {
         };
         header_map.set_counter_signature(&counter_sig);
         header_map.other_headers.insert(label_str("i am a string key"), Value::Text(String::from("also a string")));
-        header_map.other_headers.insert(label_int(-6), Value::Tag(3, Box::new(Value::Special(CBORSpecial::Null))));
+        header_map.other_headers.insert(label_int(-6), Value::Tag(3, Box::new(Value::Special(cbor_event::Special::Null))));
         deser_test(header_map);
     }
 

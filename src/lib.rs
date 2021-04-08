@@ -10,17 +10,17 @@ use noop_proc_macro::wasm_bindgen;
 #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
 use wasm_bindgen::prelude::*;
 
-use cbor_event::{self, de::Deserializer, se::{Serialize, Serializer}, Value};
-use cbor_event::Type as CBORType;
-use cbor_event::Special as CBORSpecial;
+use cbor_event::{self, de::Deserializer, se::{Serialize, Serializer}};
 
-mod builders;
+pub mod builders;
+pub mod cbor;
 mod crypto;
-mod error;
+pub mod error;
 mod serialization;
 #[macro_use]
 pub mod utils;
 
+use cbor::*;
 use error::*;
 use utils::*;
 
@@ -197,7 +197,7 @@ pub struct HeaderMap {
     // INT(7) key type
     counter_signature: Option<Box<CounterSignature>>,
     // all other headers not listed above. Does NOT contian the above, but the accessor functions do
-    other_headers: LinkedHashMap<Label, Value>,
+    other_headers: LinkedHashMap<Label, CBORValue>,
 }
 
 to_from_bytes!(HeaderMap);
@@ -261,58 +261,33 @@ impl HeaderMap {
         self.counter_signature.as_ref().map(|sig| sig.deref().clone())
     }
 
-    pub fn header(&self, label: &Label) -> Option<Value> {
-        fn label_to_value(label: &Label) -> Value {
-            match &label.0 {
-                LabelEnum::Int(x) => if x.0 >= 0 {
-                    Value::U64(x.0 as u64)
-                } else {
-                    Value::I64(x.0 as i64)
-                }
-                LabelEnum::Text(x) => Value::Text(x.to_string()),
-            }
-        }
+    pub fn header(&self, label: &Label) -> Option<CBORValue> {
         match label.0 {
             LabelEnum::Int(Int(1)) => self.algorithm_id.as_ref().map(label_to_value),
-            LabelEnum::Int(Int(2)) => self.criticality.as_ref().map(|labels| Value::Array(labels.0.iter().map(label_to_value).collect())),
+            LabelEnum::Int(Int(2)) => self.criticality.as_ref().map(labels_to_value),
             LabelEnum::Int(Int(3)) => self.content_type.as_ref().map(label_to_value),
-            LabelEnum::Int(Int(4)) => self.key_id.as_ref().map(|kid| Value::Bytes(kid.clone())),
-            LabelEnum::Int(Int(5)) => self.init_vector.as_ref().map(|iv| Value::Bytes(iv.clone())),
-            LabelEnum::Int(Int(6)) => self.partial_init_vector.as_ref().map(|piv| Value::Bytes(piv.clone())),
+            LabelEnum::Int(Int(4)) => self.key_id.as_ref().map(|kid| CBORValue::new_bytes(kid.clone())),
+            LabelEnum::Int(Int(5)) => self.init_vector.as_ref().map(|iv| CBORValue::new_bytes(iv.clone())),
+            LabelEnum::Int(Int(6)) => self.partial_init_vector.as_ref().map(|piv| CBORValue::new_bytes(piv.clone())),
             LabelEnum::Int(Int(7)) => {
                 let bytes = self.counter_signature.as_ref()?.to_bytes();
                 let mut raw = Deserializer::from(std::io::Cursor::new(bytes));
-                Some(Value::deserialize(&mut raw).unwrap())
+                Some(CBORValue::deserialize(&mut raw).unwrap())
             },
             _ => self.other_headers.get(label).map(|val| val.clone()),
         }
     }
 
-    pub fn set_header(&mut self, label: &Label, value: &Value) -> Result<(), JsError> {
-        fn value_to_label(value: &Value) -> Result<Label, JsError> {
-            match value {
-                Value::U64(x) => Ok(Label::new_int(&Int::new(to_bignum(*x)))),
-                Value::I64(x) => Ok(Label::new_int(&Int::new_negative(to_bignum(-*x as u64)))),
-                Value::Text(x) => Ok(Label::new_text(x.clone())),
-                _ => Err(JsError::from_str(&format!("Invalid label: {:?}", value))),
-            }
-        }
-        fn value_to_bytes(value: &Value) -> Result<Vec<u8>, JsError> {
-            match value {
-                Value::Bytes(bytes) => Ok(bytes.clone()),
-                _ => Err(JsError::from_str(&format!("Expected bytes, found: {:?}", value))),
-            }
-        }
+    pub fn set_header(&mut self, label: &Label, value: &CBORValue) -> Result<(), JsError> {
         match label.0 {
             LabelEnum::Int(Int(1)) => {
                 self.algorithm_id = Some(value_to_label(value)?);
             },
             LabelEnum::Int(Int(2)) => {
-                let labels = match value { 
-                    Value::Array(vals) => vals,
-                    Value::IArray(vals) => vals,
+                let labels = match &value.0 { 
+                    CBORValueEnum::Array(vals) => vals,
                     _ => return Err(JsError::from_str(&format!("Expected array of labels, found: {:?}", value))),
-                }.iter().map(value_to_label).collect::<Result<_, JsError>>()?;
+                }.values.iter().map(value_to_label).collect::<Result<_, JsError>>()?;
                 self.criticality = Some(Labels(labels));
             },
             LabelEnum::Int(Int(3)) => {
@@ -801,7 +776,7 @@ pub struct COSEKey {
     // INT(5)
     base_init_vector: Option<Vec<u8>>,
     // all other headers not listed above. Does NOT contian the above, but the accessor functions do
-    other_headers: LinkedHashMap<Label, Value>,
+    other_headers: LinkedHashMap<Label, CBORValue>,
 }
 
 to_from_bytes!(COSEKey);
@@ -848,42 +823,24 @@ impl COSEKey {
         self.base_init_vector.clone()
     }
 
-    pub fn header(&self, label: &Label) -> Option<Value> {
-        fn label_to_value(label: &Label) -> Value {
+    pub fn header(&self, label: &Label) -> Option<CBORValue> {
+        fn label_to_value(label: &Label) -> CBORValue {
             match &label.0 {
-                LabelEnum::Int(x) => if x.0 >= 0 {
-                    Value::U64(x.0 as u64)
-                } else {
-                    Value::I64(x.0 as i64)
-                }
-                LabelEnum::Text(x) => Value::Text(x.to_string()),
+                LabelEnum::Int(x) => CBORValue::new_int(x),
+                LabelEnum::Text(x) => CBORValue::new_text(x.to_string()),
             }
         }
         match label.0 {
             LabelEnum::Int(Int(1)) => Some(label_to_value(&self.key_type)),
-            LabelEnum::Int(Int(2)) => self.key_id.as_ref().map(|kid| Value::Bytes(kid.clone())),
+            LabelEnum::Int(Int(2)) => self.key_id.as_ref().map(|kid| CBORValue::new_bytes(kid.clone())),
             LabelEnum::Int(Int(3)) => self.algorithm_id.as_ref().map(label_to_value),
-            LabelEnum::Int(Int(4)) => self.key_ops.as_ref().map(|labels| Value::Array(labels.0.iter().map(label_to_value).collect())),
-            LabelEnum::Int(Int(5)) => self.base_init_vector.as_ref().map(|biv| Value::Bytes(biv.clone())),
+            LabelEnum::Int(Int(4)) => self.key_ops.as_ref().map(labels_to_value),
+            LabelEnum::Int(Int(5)) => self.base_init_vector.as_ref().map(|biv| CBORValue::new_bytes(biv.clone())),
             _ => self.other_headers.get(label).map(|val| val.clone()),
         }
     }
 
-    pub fn set_header(&mut self, label: &Label, value: &Value) -> Result<(), JsError> {
-        fn value_to_label(value: &Value) -> Result<Label, JsError> {
-            match value {
-                Value::U64(x) => Ok(Label::new_int(&Int::new(to_bignum(*x)))),
-                Value::I64(x) => Ok(Label::new_int(&Int::new_negative(to_bignum(-*x as u64)))),
-                Value::Text(x) => Ok(Label::new_text(x.clone())),
-                _ => Err(JsError::from_str(&format!("Invalid label: {:?}", value))),
-            }
-        }
-        fn value_to_bytes(value: &Value) -> Result<Vec<u8>, JsError> {
-            match value {
-                Value::Bytes(bytes) => Ok(bytes.clone()),
-                _ => Err(JsError::from_str(&format!("Expected bytes, found: {:?}", value))),
-            }
-        }
+    pub fn set_header(&mut self, label: &Label, value: &CBORValue) -> Result<(), JsError> {
         match label.0 {
             LabelEnum::Int(Int(1)) => {
                 self.key_type = value_to_label(value)?;
@@ -895,11 +852,10 @@ impl COSEKey {
                 self.algorithm_id = Some(value_to_label(value)?);
             },
             LabelEnum::Int(Int(4)) => {
-                let labels = match value { 
-                    Value::Array(vals) => vals,
-                    Value::IArray(vals) => vals,
+                let labels = match &value.0 { 
+                    CBORValueEnum::Array(vals) => vals,
                     _ => return Err(JsError::from_str(&format!("Expected array of labels, found: {:?}", value))),
-                }.iter().map(value_to_label).collect::<Result<_, JsError>>()?;
+                }.values.iter().map(value_to_label).collect::<Result<_, JsError>>()?;
                 self.key_ops = Some(Labels(labels));
             },
             LabelEnum::Int(Int(5)) => {
@@ -946,11 +902,11 @@ mod tests {
         ops1.add(&label_int(-130));
         let biv1 = vec![0u8; 128];
 
-        let kty1_value = Value::Text(String::from("key type 1"));
-        let kid1_value = Value::Bytes(kid1.clone());
-        let alg1_value = Value::I64(-10);
-        let ops1_value = Value::Array(vec![Value::Text(String::from("dfdsfds")), Value::I64(-130)]);
-        let biv1_value = Value::Bytes(biv1.clone());
+        let kty1_value = CBORValue::Text(String::from("key type 1"));
+        let kid1_value = CBORValue::Bytes(kid1.clone());
+        let alg1_value = CBORValue::I64(-10);
+        let ops1_value = CBORValue::Array(vec![CBORValue::Text(String::from("dfdsfds")), CBORValue::I64(-130)]);
+        let biv1_value = CBORValue::Bytes(biv1.clone());
 
         let kty2 = label_int(352);
         let kid2 = vec![7u8; 23];
@@ -959,11 +915,11 @@ mod tests {
         ops2.add(&label_str("89583249384"));
         let biv2 = vec![10u8, 0u8, 5u8, 9u8, 50u8, 100u8, 30u8];
 
-        let kty2_value = Value::U64(352);
-        let kid2_value = Value::Bytes(kid2.clone());
-        let alg2_value = Value::Text(String::from("algorithm 2"));
-        let ops2_value = Value::Array(vec![Value::Text(String::from("89583249384"))]);
-        let biv2_value = Value::Bytes(biv2.clone());
+        let kty2_value = CBORValue::U64(352);
+        let kid2_value = CBORValue::Bytes(kid2.clone());
+        let alg2_value = CBORValue::Text(String::from("algorithm 2"));
+        let ops2_value = CBORValue::Array(vec![CBORValue::Text(String::from("89583249384"))]);
+        let biv2_value = CBORValue::Bytes(biv2.clone());
         
         let mut ck = COSEKey::new(&kty1);
         ck.set_key_id(kid1.clone());

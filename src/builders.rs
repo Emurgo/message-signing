@@ -13,8 +13,12 @@ pub struct COSESign1Builder {
 #[wasm_bindgen]
 impl COSESign1Builder {
     pub fn new(headers: &Headers, payload: Vec<u8>, is_payload_external: bool) -> Self {
+        let mut all_headers = headers.clone();
+        all_headers.unprotected.set_header(
+            &Label::new_text(String::from("hashed")),
+            &CBORValue::new_special(&CBORSpecial::new_bool(false))).unwrap();
         Self {
-            headers: headers.clone(),
+            headers: all_headers,
             payload,
             external_aad: None,
             is_payload_external,
@@ -25,6 +29,9 @@ impl COSESign1Builder {
     pub fn hash_payload<'a>(&'a mut self) -> &'a mut Self {
         if self.hashed {
             self.hashed = true;
+            // self.headers.unprotected.set_header(
+            //     &Label::new_text(String::from("hashed")),
+            //     &Value::Special(CBORSpecial::Bool(true)));
             self.payload = crypto::blake2b224(self.payload.as_ref()).to_vec();
         }
         self
@@ -48,7 +55,7 @@ impl COSESign1Builder {
             &self.headers,
             match self.is_payload_external {
                 true => None,
-                false => Some(self.payload.clone())
+                false => Some(self.payload.clone()),
             },
             signed_sig_structure
         )
@@ -136,7 +143,7 @@ pub enum KeyTypes {
 pub enum ECKeys {
     // EC identifier
     CRV = -1,
-    // x coord
+    // x coord (OKP) / pubkey (EC2)
     X = -2,
     // y coord (only for EC2 - not present in OKP)
     Y = -3,
@@ -180,7 +187,7 @@ pub enum KeyOperations {
 
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
-pub struct EdDSA25519KeyBuilder {
+pub struct EdDSA25519Key {
     pubkey_bytes: Vec<u8>,
     prvkey_bytes: Option<Vec<u8>>,
     for_signing: bool,
@@ -188,7 +195,7 @@ pub struct EdDSA25519KeyBuilder {
 }
 
 #[wasm_bindgen]
-impl EdDSA25519KeyBuilder {
+impl EdDSA25519Key {
     pub fn new(pubkey_bytes: Vec<u8>) -> Self {
         Self {
             pubkey_bytes,
@@ -215,16 +222,16 @@ impl EdDSA25519KeyBuilder {
         // crv
         key.other_headers.insert(
             Label::new_int(&Int::new_i32(ECKeys::CRV as i32)),
-            Value::U64(CurveTypes::Ed25519 as u64));
+            CBORValue::new_int(&Int::new(to_bignum(CurveTypes::Ed25519 as u64))));
         // x
         key.other_headers.insert(
             Label::new_int(&Int::new_i32(ECKeys::X as i32)),
-            Value::Bytes(self.pubkey_bytes.clone()));
+            CBORValue::new_bytes(self.pubkey_bytes.clone()));
         // d (privkey)
         if let Some(d) = &self.prvkey_bytes {
             key.other_headers.insert(
                 Label::new_int(&Int::new_i32(ECKeys::D as i32)),
-                Value::Bytes(d.clone()));
+                CBORValue::new_bytes(d.clone()));
         }
         // alg
         key.set_algorithm_id(&Label::new_int(&Int::new_i32(AlgorithmIds::EdDSA as i32)));
@@ -249,12 +256,12 @@ impl EdDSA25519KeyBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn cose_sign1() {
-        // let mut protected_header = HeaderMap::new();
-        // protected_header.set_algorithm_id(&Label::new_int(&Int::new_i32(x: i32)));
-        // let headers = Headers::new(&protected, &unprotected);
-        // let payload = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        // let mut builder = COSESign1Builder::new(&headers, payload, true);
-    }
+    // #[test]
+    // fn cose_sign1() {
+    //     let mut protected_header = HeaderMap::new();
+    //     protected_header.set_algorithm_id(&Label::new_int(&Int::new_i32(x: i32)));
+    //     let headers = Headers::new(&protected, &unprotected);
+    //     let payload = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    //     let mut builder = COSESign1Builder::new(&headers, payload, true);
+    // }
 }
