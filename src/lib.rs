@@ -902,11 +902,11 @@ mod tests {
         ops1.add(&label_int(-130));
         let biv1 = vec![0u8; 128];
 
-        let kty1_value = CBORValue::Text(String::from("key type 1"));
-        let kid1_value = CBORValue::Bytes(kid1.clone());
-        let alg1_value = CBORValue::I64(-10);
-        let ops1_value = CBORValue::Array(vec![CBORValue::Text(String::from("dfdsfds")), CBORValue::I64(-130)]);
-        let biv1_value = CBORValue::Bytes(biv1.clone());
+        let kty1_value = CBORValue::new_text(String::from("key type 1"));
+        let kid1_value = CBORValue::new_bytes(kid1.clone());
+        let alg1_value = CBORValue::new_int(&Int::new_i32(-10));
+        let ops1_value = CBORValue::new_array(&vec![CBORValue::new_text(String::from("dfdsfds")), CBORValue::new_int(&Int::new_i32(-130))].into());
+        let biv1_value = CBORValue::new_bytes(biv1.clone());
 
         let kty2 = label_int(352);
         let kid2 = vec![7u8; 23];
@@ -915,11 +915,11 @@ mod tests {
         ops2.add(&label_str("89583249384"));
         let biv2 = vec![10u8, 0u8, 5u8, 9u8, 50u8, 100u8, 30u8];
 
-        let kty2_value = CBORValue::U64(352);
-        let kid2_value = CBORValue::Bytes(kid2.clone());
-        let alg2_value = CBORValue::Text(String::from("algorithm 2"));
-        let ops2_value = CBORValue::Array(vec![CBORValue::Text(String::from("89583249384"))]);
-        let biv2_value = CBORValue::Bytes(biv2.clone());
+        let kty2_value = CBORValue::new_int(&Int::new_i32(352));
+        let kid2_value = CBORValue::new_bytes(kid2.clone());
+        let alg2_value = CBORValue::new_text(String::from("algorithm 2"));
+        let ops2_value = CBORValue::new_array(&vec![CBORValue::new_text(String::from("89583249384"))].into());
+        let biv2_value = CBORValue::new_bytes(biv2.clone());
         
         let mut ck = COSEKey::new(&kty1);
         ck.set_key_id(kid1.clone());
@@ -948,6 +948,7 @@ mod tests {
 
     #[test]
     fn signed_message_user_facing_encoding() {
+        // round-trip testing
         let mut header_map = HeaderMap::new();
         header_map.set_content_type(&Label::new_int(&Int::new_i32(-1000)));
         let headers = Headers::new(&ProtectedHeaderMap::new_empty(), &header_map);
@@ -955,6 +956,7 @@ mod tests {
         let user_facing_encoding = signed_message.to_user_facing_encoding();
         let from_ufe = SignedMessage::from_user_facing_encoding(&user_facing_encoding).unwrap();
         assert_eq!(from_ufe.to_bytes(), signed_message.to_bytes());
+        // test acceptance of padding or lack thereof in data and/or checksum
         let pad1 = SignedMessage::from_user_facing_encoding("cms_hEChAzkD51gnQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQwECZACyaZmw==").unwrap();
         let pad2 = SignedMessage::from_user_facing_encoding("cms_hEChAzkD51gnQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQwECZA==CyaZmw").unwrap();
         let pad3 = SignedMessage::from_user_facing_encoding("cms_hEChAzkD51gnQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQwECZA==CyaZmw==").unwrap();

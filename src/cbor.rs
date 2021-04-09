@@ -7,6 +7,8 @@ pub struct TaggedCBOR {
     value: CBORValue,
 }
 
+to_from_bytes!(TaggedCBOR);
+
 #[wasm_bindgen]
 impl TaggedCBOR {
     pub fn tag(&self) -> BigNum {
@@ -31,6 +33,8 @@ pub struct CBORArray {
     definite: bool,
     pub (crate) values: Vec<CBORValue>,
 }
+
+to_from_bytes!(CBORArray);
 
 #[wasm_bindgen]
 impl CBORArray {
@@ -81,6 +85,8 @@ pub struct CBORObject {
     definite: bool,
     values: LinkedHashMap<CBORValue, CBORValue>,
 }
+
+to_from_bytes!(CBORObject);
 
 #[wasm_bindgen]
 impl CBORObject {
@@ -145,20 +151,30 @@ enum CBORSpecialEnum {
 #[derive(Clone, Debug)]
 pub struct CBORSpecial(CBORSpecialEnum);
 
+to_from_bytes!(CBORSpecial);
+
 #[wasm_bindgen]
 impl CBORSpecial {
     pub fn new_bool(b: bool) -> Self {
         Self(CBORSpecialEnum::Bool(b))
     }
 
-    pub fn new_float(f: f64) -> Self {
-        Self(CBORSpecialEnum::Float(f))
-    }
+    // Due to cbor_event not supporting serializing bytes we don't allow creating new floats.
+    // They can be deserialized still to allow reading a wider range of valid CBOR,
+    // but re-serializing will throw an error, but this should at least be better than the panic
+    // that cbor_event does.
+    // pub fn new_float(f: f64) -> Self {
+    //     Self(CBORSpecialEnum::Float(f))
+    // }
 
     pub fn new_unassigned(u: u8) -> Self {
         Self(CBORSpecialEnum::Unassigned(u))
     }
 
+    // Be *VERY* careful with using this. It is forbidden to insert into an indefinitely
+    // encoded array/object as this will be malformed CBOR.
+    // It is best to avoid manually using this unless you really know what you are doing this.
+    // The break tag is automatically inserted by this library in indefinite array/objects.
     pub fn new_break() -> Self {
         Self(CBORSpecialEnum::Break)
     }
@@ -290,6 +306,8 @@ pub enum CBORValueEnum {
 #[wasm_bindgen]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CBORValue(pub (crate) CBORValueEnum);
+
+to_from_bytes!(CBORValue);
 
 #[wasm_bindgen]
 impl CBORValue {
@@ -449,11 +467,11 @@ impl Deserialize for CBORArray {
             let len = raw.array()?;
             let definite = len != cbor_event::Len::Indefinite;
             while match len { cbor_event::Len::Len(n) => arr.len() < n as usize, cbor_event::Len::Indefinite => true, } {
-                if raw.cbor_type()? == cbor_event::Type::Special {
-                    assert_eq!(raw.special()?, cbor_event::Special::Break);
+                let elem = CBORValue::deserialize(raw)?;
+                if !definite && elem.0 == CBORValueEnum::Special(CBORSpecial(CBORSpecialEnum::Break)) {
                     break;
                 }
-                arr.push(CBORValue::deserialize(raw)?);
+                arr.push(elem);
             }
             Ok(definite)
         })().map_err(|e| e.annotate("CBORArray"))?;
@@ -512,7 +530,14 @@ impl cbor_event::se::Serialize for CBORSpecialEnum {
     fn serialize<'se, W: Write>(&self, serializer: &'se mut Serializer<W>) -> cbor_event::Result<&'se mut Serializer<W>> {
         let special = match self {
             CBORSpecialEnum::Bool(b) => cbor_event::Special::Bool(*b),
-            CBORSpecialEnum::Float(f) => cbor_event::Special::Float(*f),
+            CBORSpecialEnum::Float(f) => {
+                // cbor_event panics when trying to serialize floats so we throw an error instead here.
+                // I am not sure why cbor_event doesn't implement this so we are playing safe instead of
+                // trying to hand-code the binary CBOR spec for floats here since I imagine there was a good reason
+                // as cbor_event has all the tools to do it but doesn't yet supports deserialization.
+                //cbor_event::Special::Float(*f)
+                return Err(cbor_event::Error::CustomError(String::from("float serialization not supports by cbor_event")));
+            },
             CBORSpecialEnum::Unassigned(u) => cbor_event::Special::Unassigned(*u),
             CBORSpecialEnum::Break => cbor_event::Special::Break,
             CBORSpecialEnum::Undefined => cbor_event::Special::Undefined,
@@ -644,5 +669,93 @@ impl cbor_event::se::Serialize for CBORValue {
 impl Deserialize for CBORValue {
     fn deserialize<R: BufRead + Seek>(raw: &mut Deserializer<R>) -> Result<Self, DeserializeError> {
         Ok(Self(CBORValueEnum::deserialize(raw)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ce_value_to_bytes(val: &cbor_event::Value) -> Vec<u8> {
+        let mut buf = Serializer::new_vec();
+        val.serialize(&mut buf).unwrap();
+        buf.finalize()
+    }
+
+    #[test]
+    fn cbor_special_array() {
+        type CES = cbor_event::Special;
+        type CEV = cbor_event::Value;
+        
+        let ce_vals = vec![
+            CEV::Special(CES::Bool(true)),
+            CEV::Special(CES::Undefined),
+            CEV::Special(CES::Unassigned(4u8)),
+            CEV::Special(CES::Null),
+        //    CEV::Special(CES::Float(0f64))
+        ];
+        
+        let mut vals = CBORArray::new();
+        vals.add(&CBORValue::new_special(&CBORSpecial::new_bool(true)));
+        vals.add(&CBORValue::new_special(&CBORSpecial::new_undefined()));
+        vals.add(&CBORValue::new_special(&CBORSpecial::new_unassigned(4u8)));
+        vals.add(&CBORValue::new_special(&CBORSpecial::new_null()));
+        //vals.add(&CBORValue::new_special(&CBORSpecial::new_float(0f64)));
+        
+        // definite encoding
+        let ce_spec_arr_def = CEV::Array(ce_vals.clone());
+        let spec_arr_def = CBORValue::new_array(&vals);
+
+        let ce_bytes_def = ce_value_to_bytes(&ce_spec_arr_def);
+        assert_eq!(ce_bytes_def, spec_arr_def.to_bytes());
+
+        let spec_arr_from_ce_def = CBORValue::from_bytes(ce_bytes_def).unwrap();
+        assert_eq!(spec_arr_def, spec_arr_from_ce_def);
+
+        // indefinite encoding
+        let ce_spec_arr_indef = CEV::IArray(ce_vals);
+        vals.set_definite_encoding(false);
+        let spec_arr_indef = CBORValue::new_array(&vals);
+
+        let ce_bytes_indef = ce_value_to_bytes(&ce_spec_arr_indef);
+        assert_eq!(ce_bytes_indef, spec_arr_indef.to_bytes());
+
+        let spec_arr_from_ce_indef = CBORValue::from_bytes(ce_bytes_indef).unwrap();
+        assert_eq!(spec_arr_indef, spec_arr_from_ce_indef);
+    }
+
+    fn cbor_other_object() {
+        type CES = cbor_event::Special;
+        type CEV = cbor_event::Value;
+        type CEK = cbor_event::ObjectKey;
+
+        let mut ceo = std::collections::BTreeMap::new();
+        ceo.insert(CEK::Bytes(vec![8u8, 7u8, 6u8, 5u8, 4u8, 3u8, 2u8, 1u8, 0u8]), CEV::U64(322u64));
+        ceo.insert(CEK::Text(String::from("some_string_key")), CEV::Tag(100u64, Box::new(CEV::I64(-7))));
+
+        let mut vals = CBORObject::new();
+        vals.insert(&CBORValue::new_bytes(vec![8u8, 7u8, 6u8, 5u8, 4u8, 3u8, 2u8, 1u8, 0u8]), &CBORValue::new_int(&Int::new_i32(322)));
+        vals.insert(&CBORValue::new_text(String::from("some_string_key")), &CBORValue::new_tagged(&TaggedCBOR::new(to_bignum(100u64), &CBORValue::new_int(&Int::new_i32(-7)))));
+
+        // definite encoding
+        let ce_obj_def = CEV::Object(ceo.clone());
+        let obj_def = CBORValue::new_object(&vals);
+        
+        let ce_bytes_def = ce_value_to_bytes(&ce_obj_def);
+        assert_eq!(ce_bytes_def, obj_def.to_bytes());
+
+        let obj_from_ce_def = CBORValue::from_bytes(ce_bytes_def).unwrap();
+        assert_eq!(obj_def, obj_from_ce_def);
+
+        // indefinite encoding
+        let ce_obj_indef = CEV::IObject(ceo);
+        vals.set_definite_encoding(false);
+        let obj_indef = CBORValue::new_object(&vals);
+
+        let ce_bytes_indef = ce_value_to_bytes(&ce_obj_indef);
+        assert_eq!(ce_bytes_indef, obj_indef.to_bytes());
+
+        let obj_from_ce_indef = CBORValue::from_bytes(ce_bytes_indef).unwrap();
+        assert_eq!(obj_indef, obj_from_ce_indef);
     }
 }
