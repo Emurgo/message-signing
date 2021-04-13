@@ -117,7 +117,7 @@ impl From<cbor_event::Error> for DeserializeError {
 // since JsError panics when used for non-constants in non-wasm builds even just creating one
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-pub type JsError = JsValue;
+pub type JsError = wasm_bindgen::JsValue;
 
 #[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
 #[derive(Debug, Clone)]

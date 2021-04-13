@@ -79,6 +79,58 @@ macro_rules! to_from_bytes {
     }
 }
 
+#[macro_export]
+// Several of our label enums require negative values which are unsupported by wasm_bindgen
+// as it uses an u32 internal representation for enums so we instead provide Label::from_*
+// functionality directly for each one.
+// Note: only supports integer labels for now
+macro_rules! label_enum {
+    ($enum_name:ident {
+        $(
+            $(#[$meta:meta])*
+            $variant_name:ident = $variant_value:literal,
+        )*
+    }) => {
+        #[wasm_bindgen]
+        #[derive(Copy, Clone, Debug)]
+        pub enum $enum_name {
+            $(
+                $(#[$meta])*
+                $variant_name,
+            )*
+        }
+
+        impl From<$enum_name> for Label {
+            fn from(id: $enum_name) -> Label {
+                let label = match id {
+                    $(
+                        $enum_name::$variant_name => $variant_value,
+                    )*
+                };
+                Label::new_int(&Int::new_i32(label))
+            }
+        }
+
+        impl std::convert::TryFrom<Label> for $enum_name {
+            type Error = JsError;
+
+            fn try_from(label: Label) -> Result<Self, Self::Error> {
+                match label.0 {
+                    $(
+                        LabelEnum::Int(Int($variant_value)) => Ok($enum_name::$variant_name),
+                    )*
+                    other => Err(JsError::from_str(&format!(concat!(stringify!($enum_name), ": Construction failed from {:?}"), other))),
+                }
+            }
+        }
+        
+        // We can't provide $enum_name::to_label() functionality here since wasm_bindgen enums don't support impl blocks.
+        // We also can't auto-define from_* functions here due to concat_idents! not being allowed from this context
+        // so instead we had to manually write these in Label's impl block sadly.
+        // Rust users can just use the Into trait directly at least.
+    }
+}
+
 // we use the cbor_event::Serialize trait directly
 
 // This is only for use for plain cddl groups who need to be embedded within outer groups.

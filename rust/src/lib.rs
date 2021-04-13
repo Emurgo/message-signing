@@ -20,6 +20,7 @@ mod serialization;
 #[macro_use]
 pub mod utils;
 
+use builders::*;
 use cbor::*;
 use error::*;
 use utils::*;
@@ -103,6 +104,29 @@ impl Label {
             LabelEnum::Text(x) => Some(x.clone()),
             _ => None,
         }
+    }
+
+    // we need to put these here instead of the label enum macros due to rust
+    // restrictions on concat_idents!
+
+    pub fn from_algorithm_id(id: AlgorithmId) -> Self {
+        id.into()
+    }
+
+    pub fn from_key_type(key_type: KeyType) -> Self {
+        key_type.into()
+    }
+
+    pub fn from_ec_key(ec_key: ECKey) -> Self {
+        ec_key.into()
+    }
+
+    pub fn from_curve_type(curve_type: CurveType)-> Self {
+        curve_type.into()
+    }
+
+    pub fn from_key_operation(key_op: KeyOperation) -> Self {
+        key_op.into()
     }
 }
 
@@ -504,7 +528,7 @@ impl SignedMessage {
         Self(SignedMessageEnum::COSESIGN1(cose_sign1.clone()))
     }
 
-    pub fn from_user_facing_encoding(s: &str) -> Result<Self, JsError> {
+    pub fn from_user_facing_encoding(s: &str) -> Result<SignedMessage, JsError> {
         use std::io::Cursor;
         use byteorder::{BigEndian, ReadBytesExt};
 
@@ -530,7 +554,7 @@ impl SignedMessage {
         if expected_checksum != computed_checksum {
             return Err(JsError::from_str(&format!("checksum does not match body. shown: {}, computed from body: {}", expected_checksum, computed_checksum)));
         }
-        Self::from_bytes(body_bytes).map_err(|e| JsError::from_str(&format!("Invalid body: {}", e)))
+        Self::from_bytes(body_bytes).map_err(|e| JsError::from_str(&format!("Invalid body: {:?}", e)))
     }
 
     pub fn to_user_facing_encoding(&self) -> String {
