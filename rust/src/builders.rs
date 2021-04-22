@@ -119,7 +119,7 @@ label_enum!(AlgorithmId {
     /// EdDSA (Pure EdDSA, not HashedEdDSA) - the algorithm used for Cardano addresses
     EdDSA = -8,
     /// ChaCha20/Poly1305 w/ 256-bit key, 128-bit tag
-    ChaCha20Poly1305 = 20,
+    ChaCha20Poly1305 = 24,
 });
 
 label_enum!(KeyType {

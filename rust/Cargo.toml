@@ -1,5 +1,5 @@
 [package]
-name = "cardano-message-signing"
+name = "emurgo-message-signing"
 version = "0.1.0"
 edition = "2018"
 

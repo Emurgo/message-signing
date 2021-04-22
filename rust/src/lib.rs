@@ -457,6 +457,21 @@ impl COSESign1 {
         self.signature.clone()
     }
 
+    /// For verifying, we will want to reverse-construct this SigStructure to check the signature against
+    /// # Arguments
+    /// * `external_aad` - External application data - see RFC 8152 section 4.3. Set to None if not using this.
+    pub fn signed_data(&self, external_aad: Option<Vec<u8>>, external_payload: Option<Vec<u8>>) -> Result<SigStructure, JsError> {
+        let payload = match external_payload {
+            Some(p) => p.clone(),
+            None => self.payload.clone().ok_or_else(|| JsError::from_str("Payload was not present but no external payload supplied"))?,
+        };
+        Ok(SigStructure::new(
+            SigContext::Signature1,
+            &self.headers.protected,
+            external_aad.clone().unwrap_or(vec![]),
+            payload))
+    }
+
     pub fn new(headers: &Headers, payload: Option<Vec<u8>>, signature: Vec<u8>) -> Self {
         Self {
             headers: headers.clone(),
