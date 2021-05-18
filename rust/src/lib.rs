@@ -20,6 +20,7 @@ mod serialization;
 #[macro_use]
 pub mod utils;
 
+use builders::*;
 use cbor::*;
 use error::*;
 use utils::*;
@@ -103,6 +104,29 @@ impl Label {
             LabelEnum::Text(x) => Some(x.clone()),
             _ => None,
         }
+    }
+
+    // we need to put these here instead of the label enum macros due to rust
+    // restrictions on concat_idents!
+
+    pub fn from_algorithm_id(id: AlgorithmId) -> Self {
+        id.into()
+    }
+
+    pub fn from_key_type(key_type: KeyType) -> Self {
+        key_type.into()
+    }
+
+    pub fn from_ec_key(ec_key: ECKey) -> Self {
+        ec_key.into()
+    }
+
+    pub fn from_curve_type(curve_type: CurveType)-> Self {
+        curve_type.into()
+    }
+
+    pub fn from_key_operation(key_op: KeyOperation) -> Self {
+        key_op.into()
     }
 }
 
@@ -433,6 +457,21 @@ impl COSESign1 {
         self.signature.clone()
     }
 
+    /// For verifying, we will want to reverse-construct this SigStructure to check the signature against
+    /// # Arguments
+    /// * `external_aad` - External application data - see RFC 8152 section 4.3. Set to None if not using this.
+    pub fn signed_data(&self, external_aad: Option<Vec<u8>>, external_payload: Option<Vec<u8>>) -> Result<SigStructure, JsError> {
+        let payload = match external_payload {
+            Some(p) => p.clone(),
+            None => self.payload.clone().ok_or_else(|| JsError::from_str("Payload was not present but no external payload supplied"))?,
+        };
+        Ok(SigStructure::new(
+            SigContext::Signature1,
+            &self.headers.protected,
+            external_aad.clone().unwrap_or(vec![]),
+            payload))
+    }
+
     pub fn new(headers: &Headers, payload: Option<Vec<u8>>, signature: Vec<u8>) -> Self {
         Self {
             headers: headers.clone(),
@@ -504,7 +543,7 @@ impl SignedMessage {
         Self(SignedMessageEnum::COSESIGN1(cose_sign1.clone()))
     }
 
-    pub fn from_user_facing_encoding(s: &str) -> Result<Self, JsError> {
+    pub fn from_user_facing_encoding(s: &str) -> Result<SignedMessage, JsError> {
         use std::io::Cursor;
         use byteorder::{BigEndian, ReadBytesExt};
 
@@ -530,7 +569,7 @@ impl SignedMessage {
         if expected_checksum != computed_checksum {
             return Err(JsError::from_str(&format!("checksum does not match body. shown: {}, computed from body: {}", expected_checksum, computed_checksum)));
         }
-        Self::from_bytes(body_bytes).map_err(|e| JsError::from_str(&format!("Invalid body: {}", e)))
+        Self::from_bytes(body_bytes).map_err(|e| JsError::from_str(&format!("Invalid body: {:?}", e)))
     }
 
     pub fn to_user_facing_encoding(&self) -> String {

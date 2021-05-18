@@ -26,7 +26,7 @@ impl COSESign1Builder {
         }
     }
 
-    pub fn hash_payload<'a>(&'a mut self) -> &'a mut Self {
+    pub fn hash_payload(&mut self) {
         if self.hashed {
             self.hashed = true;
             // self.headers.unprotected.set_header(
@@ -34,12 +34,10 @@ impl COSESign1Builder {
             //     &Value::Special(CBORSpecial::Bool(true)));
             self.payload = crypto::blake2b224(self.payload.as_ref()).to_vec();
         }
-        self
     }
 
-    pub fn set_external_aad<'a>(&'a mut self, external_aad: Vec<u8>) -> &'a mut Self {
+    pub fn set_external_aad(&mut self, external_aad: Vec<u8>) {
         self.external_aad = Some(external_aad);
-        self
     }
 
     pub fn make_data_to_sign(&self) -> SigStructure {
@@ -85,17 +83,15 @@ impl COSESignBuilder {
         }
     }
 
-    pub fn hash_payload<'a>(&'a mut self) -> &'a mut Self {
+    pub fn hash_payload(&mut self) {
         if self.hashed {
             self.hashed = true;
             self.payload = crypto::blake2b224(self.payload.as_ref()).to_vec();
         }
-        self
     }
 
-    pub fn set_external_aad<'a>(&'a mut self, external_aad: Vec<u8>) -> &'a mut Self {
+    pub fn set_external_aad(&mut self, external_aad: Vec<u8>) {
         self.external_aad = Some(external_aad);
-        self
     }
 
     pub fn make_data_to_sign(&self) -> SigStructure {
@@ -119,28 +115,22 @@ impl COSESignBuilder {
 
 // TODO: copy the COSESign(1) builders for COSEEncrypt(1) if this seems like a good approach
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
-pub enum AlgorithmIds {
-    // EdDSA (Pure EdDSA, not HashedEdDSA) - the algorithm used for Cardano addresses
+label_enum!(AlgorithmId {
+    /// EdDSA (Pure EdDSA, not HashedEdDSA) - the algorithm used for Cardano addresses
     EdDSA = -8,
-    // ChaCha20/Poly1305 w/ 256-bit key, 128-bit tag
+    /// ChaCha20/Poly1305 w/ 256-bit key, 128-bit tag
     ChaCha20Poly1305 = 24,
-}
+});
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
-pub enum KeyTypes {
-    // octet key pair
+label_enum!(KeyType {
+    /// octet key pair
     OKP = 1,
-    // 2-coord EC
+    /// 2-coord EC
     EC2 = 2,
     Symmetric = 4,
-}
+});
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
-pub enum ECKeys {
+label_enum!(ECKey {
     // EC identifier
     CRV = -1,
     // x coord (OKP) / pubkey (EC2)
@@ -149,11 +139,9 @@ pub enum ECKeys {
     Y = -3,
     // private key (optional)
     D = -4,
-}
+});
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
-pub enum CurveTypes {
+label_enum!(CurveType {
     P256 = 1,
     P384 = 2,
     P521 = 3,
@@ -162,11 +150,9 @@ pub enum CurveTypes {
     // the EdDSA variant used for cardano addresses
     Ed25519 = 6,
     Ed448 = 7,
-}
+});
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
-pub enum KeyOperations {
+label_enum!(KeyOperation {
     // The key is used to create signatures. Requires private key fields
     Sign = 1,
     // The key is used for verification of signatures.
@@ -183,7 +169,7 @@ pub enum KeyOperations {
     DeriveKey = 7,
     // The key is used for deriving bits not to be used as a key. Requires private key fields
     DeriveBits = 8,
-}
+});
 
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
@@ -218,31 +204,31 @@ impl EdDSA25519Key {
     }
 
     pub fn build(&self) -> COSEKey {
-        let mut key = COSEKey::new(&Label::new_int(&Int::new_i32(KeyTypes::OKP as i32)));
+        let mut key = COSEKey::new(&KeyType::OKP.into());
         // crv
         key.other_headers.insert(
-            Label::new_int(&Int::new_i32(ECKeys::CRV as i32)),
-            CBORValue::new_int(&Int::new(to_bignum(CurveTypes::Ed25519 as u64))));
+            ECKey::CRV.into(),
+            CBORValue::new_int(&Int::new(to_bignum(CurveType::Ed25519 as u64))));
         // x
         key.other_headers.insert(
-            Label::new_int(&Int::new_i32(ECKeys::X as i32)),
+            ECKey::X.into(),
             CBORValue::new_bytes(self.pubkey_bytes.clone()));
         // d (privkey)
         if let Some(d) = &self.prvkey_bytes {
             key.other_headers.insert(
-                Label::new_int(&Int::new_i32(ECKeys::D as i32)),
+                ECKey::D.into(),
                 CBORValue::new_bytes(d.clone()));
         }
         // alg
-        key.set_algorithm_id(&Label::new_int(&Int::new_i32(AlgorithmIds::EdDSA as i32)));
+        key.set_algorithm_id(&AlgorithmId::EdDSA.into());
         // key-ops
         if self.for_signing || self.for_verifying {
             let mut key_ops = Labels::new();
             if self.for_signing {
-                key_ops.add(&Label::new_int(&Int::new_i32(KeyOperations::Sign as i32)));
+                key_ops.add(&KeyOperation::Sign.into());
             }
             if self.for_verifying {
-                key_ops.add(&Label::new_int(&Int::new_i32(KeyOperations::Verify as i32)));
+                key_ops.add(&KeyOperation::Verify.into());
             }
             key.set_key_ops(&key_ops);
         }

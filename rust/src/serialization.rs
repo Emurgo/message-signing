@@ -15,7 +15,9 @@ impl Deserialize for ProtectedHeaderMap {
             if bytes.is_empty() {
                 Ok(ProtectedHeaderMap::new_empty())
             } else {
-                Ok(ProtectedHeaderMap::new(&HeaderMap::from_bytes(bytes)?))
+                // can't use from_bytes since error types won't match up on wasm builds otherwise
+                let mut bytes_deserializer = Deserializer::from(std::io::Cursor::new(bytes));
+                Ok(ProtectedHeaderMap::new(&HeaderMap::deserialize(&mut bytes_deserializer)?))
             }
         })().map_err(|e| e.annotate("ProtectedHeaderMap"))
     }
@@ -630,10 +632,12 @@ impl Deserialize for SigStructure {
             };
             let (sign_protected, external_aad, payload) = match b3 {
                 Some(bytes) => {
-                    let map = if b1.len() == 0 {
+                    // must be inlined since we already read the CBOR bytes portion
+                    let map = if b1.is_empty() {
                         ProtectedHeaderMap::new_empty()
                     } else {
-                        ProtectedHeaderMap::new(&HeaderMap::from_bytes(b1)?)
+                        let mut b1_deserializer = Deserializer::from(std::io::Cursor::new(b1));
+                        ProtectedHeaderMap::new(&HeaderMap::deserialize(&mut b1_deserializer)?)
                     };
                     (Some(map), b2, bytes)
                 },

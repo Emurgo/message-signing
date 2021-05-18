@@ -530,7 +530,7 @@ impl cbor_event::se::Serialize for CBORSpecialEnum {
     fn serialize<'se, W: Write>(&self, serializer: &'se mut Serializer<W>) -> cbor_event::Result<&'se mut Serializer<W>> {
         let special = match self {
             CBORSpecialEnum::Bool(b) => cbor_event::Special::Bool(*b),
-            CBORSpecialEnum::Float(f) => {
+            CBORSpecialEnum::Float(_f) => {
                 // cbor_event panics when trying to serialize floats so we throw an error instead here.
                 // I am not sure why cbor_event doesn't implement this so we are playing safe instead of
                 // trying to hand-code the binary CBOR spec for floats here since I imagine there was a good reason
