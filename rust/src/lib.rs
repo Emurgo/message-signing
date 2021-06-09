@@ -398,10 +398,10 @@ impl Headers {
         self.unprotected.clone()
     }
 
-    pub fn new(protected: &ProtectedHeaderMap, unprotected: &HeaderMap) -> Self {
+    pub fn new(protected_: &ProtectedHeaderMap, unprotected_: &HeaderMap) -> Self {
         Self {
-            protected: protected.clone(),
-            unprotected: unprotected.clone(),
+            protected: protected_.clone(),
+            unprotected: unprotected_.clone(),
         }
     }
 }
