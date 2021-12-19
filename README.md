@@ -1,6 +1,6 @@
 # Message Signing
 
-This is a library that implements the [CIP-0008](https://github.com/cardano-foundation/CIPs/blob/master/CIP-0008/CIP-0008.md) message signing spec for the Cardano blockchain.
+This is a library that implements the [CIP-0008](https://github.com/cardano-foundation/CIPs/blob/master/CIP-0008/README.md) message signing spec for the Cardano blockchain.
 
 The library is composed of structs for (de)serializing the CBOR defined in CIP-0008/COSE which lays at the core of the protocol, mostly defined in `lib.rs`, as well as many helper utilities for more specific cases useful to CIP-0008. These are mostly in `builders.rs` for building the CBOR structures specific to certain algorithms.
 
