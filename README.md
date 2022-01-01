@@ -4,6 +4,11 @@ This is a library that implements the [CIP-0008](https://github.com/cardano-foun
 
 The library is composed of structs for (de)serializing the CBOR defined in CIP-0008/COSE which lays at the core of the protocol, mostly defined in `lib.rs`, as well as many helper utilities for more specific cases useful to CIP-0008. These are mostly in `builders.rs` for building the CBOR structures specific to certain algorithms.
 
+##### NPM packages
+
+- [NodeJS WASM package](https://www.npmjs.com/package/@emurgo/cardano-message-signing-nodejs)
+- [Browser (chrome/firefox) WASM package](https://www.npmjs.com/package/@emurgo/cardano-message-signing-browser)
+- [Browser (pure JS - no WASM) ASM.js package](https://www.npmjs.com/package/@emurgo/cardano-message-signing-asmjs)
 
 
 ## Building
