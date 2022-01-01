@@ -6,4 +6,3 @@ examples/rust/.idea
 examples/rust/target
 .vscode/
 .idea
-binaryen/
