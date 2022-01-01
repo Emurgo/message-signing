@@ -22,6 +22,6 @@ and for use from rust simply use the lib that resides in `/rust/`.
 
 
 
-## Exampe Usage
+## Example Usage
 
 It is important to read the CIP-0008 spec to properly understand how to use this library. As per CIP-0008/COSE, signing is done via constructing a `SigStructure` and then signing this with the proper keys. This can be simplified via the use of the `COSESignBuilder` (for multiparty signing) / `COSESign1Builder` (for single signer) builders. Encryption is not yet supported by this library but will be in the future. An example node.js (wasm option) project that signs a message with a Cardano address exists in the `/example/` directory which has detailed comments describing each step.

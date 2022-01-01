@@ -1,0 +1,9 @@
+node_modules/
+publish/
+rust/.idea
+rust/target
+examples/rust/.idea
+examples/rust/target
+.vscode/
+.idea
+binaryen/
