@@ -1,4 +1,4 @@
-use emurgo_message_signing as ms;
+use cardano_message_signing as ms;
 use cardano_serialization_lib as csl;
 
 fn main() {
