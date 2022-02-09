@@ -2,6 +2,7 @@
 name = "cardano-message-signing"
 version = "1.0.1"
 edition = "2018"
+authors = ["EMURGO"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
