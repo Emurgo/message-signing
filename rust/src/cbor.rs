@@ -339,6 +339,13 @@ impl CBORValue {
         Self(CBORValueEnum::Special(special.clone()))
     }
 
+    pub fn from_label(label: &Label) -> Self {
+        match &label.0 {
+            LabelEnum::Int(x) => Self::new_int(x),
+            LabelEnum::Text(x) => Self::new_text(x.clone()),
+        }
+    }
+
     pub fn kind(&self) -> CBORValueKind {
         match &self.0 {
             CBORValueEnum::Int(_) => CBORValueKind::Int,

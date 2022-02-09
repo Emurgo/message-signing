@@ -208,7 +208,7 @@ impl EdDSA25519Key {
         // crv
         key.other_headers.insert(
             ECKey::CRV.into(),
-            CBORValue::new_int(&Int::new(to_bignum(CurveType::Ed25519 as u64))));
+            CBORValue::from_label(&Label::from(CurveType::Ed25519)));
         // x
         key.other_headers.insert(
             ECKey::X.into(),
@@ -250,4 +250,15 @@ mod tests {
     //     let payload = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     //     let mut builder = COSESign1Builder::new(&headers, payload, true);
     // }
+
+    #[test]
+    fn eddsa25519key() {
+        let xpub = vec![0; 32];
+        let key = EdDSA25519Key::new(xpub.clone()).build();
+        // these serve to test the enum implementations too
+        assert_eq!(key.key_type().as_int().unwrap().as_i32().unwrap(), 1);
+        assert_eq!(key.algorithm_id().unwrap().as_int().unwrap().as_i32().unwrap(), -8);
+        assert_eq!(key.header(&Label::new_int(&Int::new_i32(-1))).unwrap().as_int().unwrap().as_i32().unwrap(), 6);
+        assert_eq!(key.header(&Label::new_int(&Int::new_i32(-2))).unwrap().as_bytes().unwrap(), xpub);
+    }
 }
