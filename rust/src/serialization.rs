@@ -315,7 +315,6 @@ impl Deserialize for HeaderMap {
                 }
                 read += 1;
             }
-            println!("other_headers = {:?}", other_headers);
             Ok(Self {
                 algorithm_id,
                 criticality,
@@ -998,7 +997,6 @@ impl Deserialize for COSEKey {
                 }
                 read += 1;
             }
-            println!("other_headers = {:?}", other_headers);
             match key_type {
                 Some(kty) => Ok(Self {
                     key_type: kty,
