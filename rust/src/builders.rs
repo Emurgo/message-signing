@@ -27,11 +27,11 @@ impl COSESign1Builder {
     }
 
     pub fn hash_payload(&mut self) {
-        if self.hashed {
+        if !self.hashed {
             self.hashed = true;
-            // self.headers.unprotected.set_header(
-            //     &Label::new_text(String::from("hashed")),
-            //     &Value::Special(CBORSpecial::Bool(true)));
+            let _ = self.headers.unprotected.set_header(
+               &Label::new_text(String::from("hashed")),
+               &CBORValue::new_special(&CBORSpecial::new_bool(true)));
             self.payload = crypto::blake2b224(self.payload.as_ref()).to_vec();
         }
     }
@@ -84,7 +84,7 @@ impl COSESignBuilder {
     }
 
     pub fn hash_payload(&mut self) {
-        if self.hashed {
+        if !self.hashed {
             self.hashed = true;
             self.payload = crypto::blake2b224(self.payload.as_ref()).to_vec();
         }
@@ -157,7 +157,7 @@ label_enum!(KeyOperation {
     Sign = 1,
     // The key is used for verification of signatures.
     Verify = 2,
-    // The key is used for key transport encryption. 
+    // The key is used for key transport encryption.
     Encrypt = 3,
     // The key is used for key transport decryption. Requires private key fields.
     Decrypt = 4,
