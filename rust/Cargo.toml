@@ -23,4 +23,5 @@ noop_proc_macro = "0.3.0"
 
 # wasm
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies]
-wasm-bindgen = { version = "0.2.74", features=["serde-serialize"] }
+serde-wasm-bindgen = "0.6.5"
+wasm-bindgen = "=0.2.92"

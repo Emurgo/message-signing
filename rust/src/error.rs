@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Debug)]
 pub enum Key {
     Str(String),
@@ -117,7 +119,7 @@ impl From<cbor_event::Error> for DeserializeError {
 // since JsError panics when used for non-constants in non-wasm builds even just creating one
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-pub type JsError = wasm_bindgen::JsValue;
+pub type JsError = JsValue;
 
 #[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
 #[derive(Debug, Clone)]
@@ -145,3 +147,6 @@ impl std::fmt::Display for JsError {
         write!(f, "{}", self.msg)
     }
 }
+
+#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+impl std::error::Error for DeserializeError {}

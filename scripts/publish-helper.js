@@ -7,6 +7,10 @@ if (oldPkg.files.find(entry => entry === flowFile) == null) {
 }
 if (oldPkg.name === 'cardano-message-signing') {
   oldPkg.name = '@emurgo/' + oldPkg.name + process.argv.slice(2)[0];
+  let optionalArg = process.argv.slice(2)[1];
+  if (optionalArg) {
+    oldPkg.name += optionalArg;
+  }
 }
 if (process.argv.slice(2)[0] === '-browser' || process.argv.slice(2)[0] === '-asmjs') {
   // due to a bug in wasm-pack, this file is missing from browser builds
@@ -16,7 +20,7 @@ if (process.argv.slice(2)[0] === '-browser' || process.argv.slice(2)[0] === '-as
   }
 }
 if (process.argv.slice(2)[0] === '-asmjs') {
-  // need to replace WASM with ASM package 
+  // need to replace WASM with ASM package
   const missingFile = 'cardano_message_signing_bg.wasm';
   oldPkg.files = [
     'cardano_message_signing.asm.js',

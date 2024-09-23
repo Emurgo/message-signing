@@ -19,9 +19,9 @@ impl TaggedCBOR {
         self.value.clone()
     }
 
-    pub fn new(tag: BigNum, value: &CBORValue) -> Self {
+    pub fn new(tag: &BigNum, value: &CBORValue) -> Self {
         Self {
-            tag,
+            tag: tag.clone(),
             value: value.clone(),
         }
     }
@@ -742,7 +742,7 @@ mod tests {
 
         let mut vals = CBORObject::new();
         vals.insert(&CBORValue::new_bytes(vec![8u8, 7u8, 6u8, 5u8, 4u8, 3u8, 2u8, 1u8, 0u8]), &CBORValue::new_int(&Int::new_i32(322)));
-        vals.insert(&CBORValue::new_text(String::from("some_string_key")), &CBORValue::new_tagged(&TaggedCBOR::new(to_bignum(100u64), &CBORValue::new_int(&Int::new_i32(-7)))));
+        vals.insert(&CBORValue::new_text(String::from("some_string_key")), &CBORValue::new_tagged(&TaggedCBOR::new(&to_bignum(100u64), &CBORValue::new_int(&Int::new_i32(-7)))));
 
         // definite encoding
         let ce_obj_def = CEV::Object(ceo.clone());
