@@ -12,7 +12,7 @@
     "rust:build-web:gc": "(rimraf ./rust/pkg && cd rust; WASM_BINDGEN_WEAKREF=1 wasm-pack build --target=web; wasm-pack pack) && npm run js:flowgen",
     "rust:build-asm:gc": "(rimraf ./rust/pkg && cd rust; WASM_BINDGEN_WEAKREF=1 wasm-pack build --target=browser;  wasm-pack pack) && npm run asm:build && npm run js:flowgen",
     "rust:publish": "cd rust && cargo publish && cd ../",
-    "asm:build": "EMCC_DEBUG=1 ./binaryen/bin/wasm2js ./rust/pkg/cardano_message_signing_bg.wasm --output ./rust/pkg/cardano_message_signing.asm.js && node ./scripts/wasm-to-asm  && node ./scripts/fix-buffer-ref.js",
+    "asm:build": "./binaryen/bin/wasm2js ./rust/pkg/cardano_message_signing_bg.wasm --output ./rust/pkg/cardano_message_signing.asm.js && node ./scripts/wasm-to-asm  && node ./scripts/fix-buffer-ref.js",
     "rust:check-warnings": "(cd rust; RUSTFLAGS=\"-D warnings\" cargo +stable build)",
     "rust:test": "(cd rust; cargo test)",
     "js:flowgen": "flowgen ./rust/pkg/cardano_message_signing.d.ts -o ./rust/pkg/cardano_message_signing.js.flow --add-flow-header",
@@ -29,7 +29,7 @@
     "js:publish-browser:beta:gc": "npm run rust:build-browser:gc && npm run js:prepublish && node ./scripts/publish-helper -browser -gc && cd publish && npm publish --tag beta --access public",
     "js:publish-asm:prod:gc": "npm run rust:build-asm:gc && npm run js:prepublish && node ./scripts/publish-helper -asmjs -gc && cd publish && npm publish --access public",
     "js:publish-asm:beta:gc": "npm run rust:build-asm:gc && npm run js:prepublish && node ./scripts/publish-helper -asmjs -gc && cd publish && npm publish --tag beta --access public",
-    "postinstall": "git submodule update --init --recursive && cd binaryen; cmake . && make"
+    "postinstall": "git submodule update --init --recursive && cd binaryen; cmake . && make -j"
   },
   "husky": {
     "hooks": {
