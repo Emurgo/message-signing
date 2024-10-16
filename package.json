@@ -29,7 +29,7 @@
     "js:publish-browser:beta:gc": "npm run rust:build-browser:gc && npm run js:prepublish && node ./scripts/publish-helper -browser -gc && cd publish && npm publish --tag beta --access public",
     "js:publish-asm:prod:gc": "npm run rust:build-asm:gc && npm run js:prepublish && node ./scripts/publish-helper -asmjs -gc && cd publish && npm publish --access public",
     "js:publish-asm:beta:gc": "npm run rust:build-asm:gc && npm run js:prepublish && node ./scripts/publish-helper -asmjs -gc && cd publish && npm publish --tag beta --access public",
-    "postinstall": "git submodule update --init --recursive && cd binaryen; cmake . && make -j"
+    "postinstall": "git submodule update --init --recursive && cd binaryen; cmake . && make"
   },
   "husky": {
     "hooks": {
