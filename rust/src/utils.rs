@@ -281,11 +281,11 @@ pub struct Int(pub (crate) i128);
 
 #[wasm_bindgen]
 impl Int {
-    pub fn new(x: BigNum) -> Self {
+    pub fn new(x: &BigNum) -> Self {
         Self(x.0 as i128)
     }
 
-    pub fn new_negative(x: BigNum) -> Self {
+    pub fn new_negative(x: &BigNum) -> Self {
         Self(-(x.0 as i128))
     }
 

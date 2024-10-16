@@ -227,7 +227,7 @@ impl Deserialize for HeaderMap {
                         read_value(
                             raw,
                             &mut other_headers,
-                            Label::new_int(&Int::new_negative(to_bignum(nint_abs))),
+                            Label::new_int(&Int::new_negative(&to_bignum(nint_abs))),
                             Key::Nint(nint_abs))?;
                     },
                     cbor_event::Type::UnsignedInteger => match raw.unsigned_integer()? {
@@ -292,7 +292,7 @@ impl Deserialize for HeaderMap {
                             read_value(
                                 raw,
                                 &mut other_headers,
-                                Label::new_int(&Int::new(to_bignum(uint))),
+                                Label::new_int(&Int::new(&to_bignum(uint))),
                                 Key::Uint(uint))?;
                         },
                     },
@@ -925,7 +925,7 @@ impl Deserialize for COSEKey {
                         read_value(
                             raw,
                             &mut other_headers,
-                            Label::new_int(&Int::new_negative(to_bignum(nint_abs))),
+                            Label::new_int(&Int::new_negative(&to_bignum(nint_abs))),
                             Key::Nint(nint_abs))?;
                     },
                     cbor_event::Type::UnsignedInteger => match raw.unsigned_integer()? {
@@ -974,7 +974,7 @@ impl Deserialize for COSEKey {
                             read_value(
                                 raw,
                                 &mut other_headers,
-                                Label::new_int(&Int::new(to_bignum(uint))),
+                                Label::new_int(&Int::new(&to_bignum(uint))),
                                 Key::Uint(uint))?;
                         },
                     },
@@ -1159,7 +1159,7 @@ mod tests {
         };
         header_map.set_counter_signature(&counter_sig);
         header_map.set_header(&label_str("i am a string key"), &CBORValue::new_text(String::from("also a string")));
-        header_map.set_header(&label_int(-6), &CBORValue::new_tagged(&TaggedCBOR::new(to_bignum(3u64), &CBORValue::new_special(&CBORSpecial::new_null()))));
+        header_map.set_header(&label_int(-6), &CBORValue::new_tagged(&TaggedCBOR::new(&to_bignum(3u64), &CBORValue::new_special(&CBORSpecial::new_null()))));
         deser_test(header_map);
     }
 

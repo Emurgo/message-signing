@@ -8,7 +8,7 @@ use linked_hash_map::LinkedHashMap;
 use noop_proc_macro::wasm_bindgen;
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 
 use cbor_event::{self, de::Deserializer, se::{Serialize, Serializer}};
 
