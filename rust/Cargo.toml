@@ -1,8 +1,11 @@
 [package]
-name = "cardano-message-signing"
+name = "emurgo-cardano-message-signing"
 version = "1.1.0"
 edition = "2018"
 authors = ["EMURGO"]
+license = "MIT"
+description = "Message signing standard for Cardano"
+
 
 [lib]
 crate-type = ["cdylib", "rlib"]
