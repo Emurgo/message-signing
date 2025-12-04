@@ -10,6 +10,13 @@ The library is composed of structs for (de)serializing the CBOR defined in CIP-0
 - [Browser (chrome/firefox) WASM package](https://www.npmjs.com/package/@emurgo/cardano-message-signing-browser)
 - [Browser (pure JS - no WASM) ASM.js package](https://www.npmjs.com/package/@emurgo/cardano-message-signing-asmjs)
 
+##### Crate
+
+- [Rust crate](https://crates.io/crates/emurgo-cardano-message-signing)
+
+##### Mobile bindings 
+
+- [React-Native mobile bindings](https://www.npmjs.com/package/@emurgo/msl-mobile-bridge)
 
 ## Building
 
